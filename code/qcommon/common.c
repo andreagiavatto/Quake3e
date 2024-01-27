@@ -3471,9 +3471,8 @@ static void Sys_GetProcessorId( char *vendor )
 
 #else // __linux__
 
-#include <sys/auxv.h>
-
 #if arm32
+#include <sys/auxv.h>
 #include <asm/hwcap.h>
 #endif
 
