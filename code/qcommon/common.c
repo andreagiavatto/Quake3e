@@ -4411,8 +4411,6 @@ void Com_Frame( qboolean noDelay ) {
 
 	NET_FlushPacketQueue( 0 );
 
-	Cbuf_Wait();
-
 	//
 	// report timing information
 	//
