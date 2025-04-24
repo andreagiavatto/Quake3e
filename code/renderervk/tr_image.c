@@ -82,7 +82,7 @@ void GL_TextureMode( const char *string ) {
 	const textureMode_t *mode;
 	image_t	*img;
 	int		i;
-	
+
 	mode = NULL;
 	for ( i = 0 ; i < ARRAY_LEN( modes ) ; i++ ) {
 		if ( !Q_stricmp( modes[i].name, string ) ) {
@@ -713,7 +713,7 @@ static void generate_image_upload_data( image_t *image, byte *data, Image_Upload
 	upload_data->buffer_size = mip_level_size;
 	
 	if ( mipmap ) {
-		while (scaled_width > 1 || scaled_height > 1) {
+		while (scaled_width > 1 && scaled_height > 1) {
 			R_MipMap((byte *)scaled_buffer, (byte *)scaled_buffer, scaled_width, scaled_height);
 
 			scaled_width >>= 1;
@@ -760,10 +760,6 @@ static void upload_vk_image( image_t *image, byte *pic ) {
 		qboolean has_alpha = RawImage_HasAlpha( upload_data.buffer, w * h );
 		image->internalFormat = has_alpha ? VK_FORMAT_B4G4R4A4_UNORM_PACK16 : VK_FORMAT_A1R5G5B5_UNORM_PACK16;
 	}
-
-	image->handle = VK_NULL_HANDLE;
-	image->view = VK_NULL_HANDLE;
-	image->descriptor = VK_NULL_HANDLE;
 
 	image->uploadWidth = w;
 	image->uploadHeight = h;
@@ -1066,6 +1062,10 @@ image_t *R_CreateImage( const char *name, const char *name2, byte *pic, int widt
 		image->wrapClampMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	else
 		image->wrapClampMode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+
+	image->handle = VK_NULL_HANDLE;
+	image->view = VK_NULL_HANDLE;
+	image->descriptor = VK_NULL_HANDLE;
 
 	upload_vk_image( image, pic );
 #else

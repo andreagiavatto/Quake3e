@@ -131,8 +131,10 @@ void SV_SetConfigstring (int index, const char *val) {
 		// send the data to all relevant clients
 		for (i = 0, client = svs.clients; i < sv.maxclients; i++, client++) {
 			if ( client->state < CS_ACTIVE ) {
-				if ( client->state == CS_PRIMED )
-					client->csUpdated[ index ] = qtrue;
+				if ( client->state == CS_PRIMED || client->state == CS_CONNECTED ) {
+					// track CS_CONNECTED clients as well to optimize gamestate acknowledge after downloading/retransmission
+					client->csUpdated[index] = qtrue;
+				}
 				continue;
 			}
 			// do not always send server info to all clients
@@ -297,6 +299,8 @@ static void SV_Startup( void ) {
 	}
 
 	SV_AllocClients( sv_maxclients->integer );
+
+	sv_maxclients->modified = qfalse;
 
 	svs.initialized = qtrue;
 
@@ -678,6 +682,9 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	Com_Printf ("-----------------------------------\n");
 
 	Sys_SetStatus( "Running map %s", mapname );
+
+	// suppress hitch warning
+	Com_FrameInit();
 }
 
 
@@ -714,7 +721,7 @@ void SV_Init( void )
 	Cvar_SetDescription( sv_hostname, "Sets the name of the server." );
 	sv_maxclients = Cvar_Get ("sv_maxclients", "8", CVAR_SERVERINFO | CVAR_LATCH);
 	Cvar_CheckRange( sv_maxclients, "1", XSTRING(MAX_CLIENTS), CV_INTEGER );
-	Cvar_SetDescription( sv_maxclients, "Maximum number of people allowed to join the server dedicated server memory optimizations." );
+	Cvar_SetDescription( sv_maxclients, "Maximum number of people allowed to join the server." );
 
 	sv_maxclientsPerIP = Cvar_Get( "sv_maxclientsPerIP", "3", CVAR_ARCHIVE );
 	Cvar_CheckRange( sv_maxclientsPerIP, "1", NULL, CV_INTEGER );

@@ -10,30 +10,35 @@
 #define MIN_SWAPCHAIN_IMAGES_MAILBOX 3
 
 #define MAX_VK_SAMPLERS 32
-#define MAX_VK_PIPELINES (1024 + 128)
+#define MAX_VK_PIPELINES ((1024 + 128)*2)
 
-#define VERTEX_BUFFER_SIZE (4 * 1024 * 1024)
+#define VERTEX_BUFFER_SIZE (4 * 1024 * 1024)	/* by default */
+#define STAGING_BUFFER_SIZE (2 * 1024 * 1024)	/* by default */
+
 #define IMAGE_CHUNK_SIZE (32 * 1024 * 1024)
 #define MAX_IMAGE_CHUNKS 56
 
 #define NUM_COMMAND_BUFFERS 2	// number of command buffers / render semaphores / framebuffer sets
 
 #define USE_REVERSED_DEPTH
-//#define USE_BUFFER_CLEAR
+
+#define USE_UPLOAD_QUEUE
 
 #define VK_NUM_BLOOM_PASSES 4
 
+#ifndef _DEBUG
 #define USE_DEDICATED_ALLOCATION
+#endif
 //#define MIN_IMAGE_ALIGN (128*1024)
 #define MAX_ATTACHMENTS_IN_POOL (8+VK_NUM_BLOOM_PASSES*2) // depth + msaa + msaa-resolve + depth-resolve + screenmap.msaa + screenmap.resolve + screenmap.depth + bloom_extract + blur pairs
 
 #define VK_DESC_STORAGE      0
-#define VK_DESC_UNIFORM      1
-#define VK_DESC_TEXTURE0     2
-#define VK_DESC_TEXTURE1     3
-#define VK_DESC_TEXTURE2     4
-#define VK_DESC_FOG_COLLAPSE 5
-#define VK_DESC_COUNT        6
+#define VK_DESC_UNIFORM      0
+#define VK_DESC_TEXTURE0     1
+#define VK_DESC_TEXTURE1     2
+#define VK_DESC_TEXTURE2     3
+#define VK_DESC_FOG_COLLAPSE 4
+#define VK_DESC_COUNT        5
 
 #define VK_DESC_TEXTURE_BASE VK_DESC_TEXTURE0
 #define VK_DESC_FOG_ONLY     VK_DESC_TEXTURE1
@@ -157,8 +162,8 @@ typedef struct {
 } Vk_Sampler_Def;
 
 typedef enum {
-	RENDER_PASS_SCREENMAP = 0,
-	RENDER_PASS_MAIN,
+	RENDER_PASS_MAIN = 0,
+	RENDER_PASS_SCREENMAP,
 	RENDER_PASS_POST_BLOOM,
 	RENDER_PASS_COUNT
 } renderPass_t;
@@ -240,6 +245,7 @@ void vk_shutdown( refShutdownCode_t code );
 void vk_release_resources( void );
 
 void vk_wait_idle( void );
+void vk_queue_wait_idle( void );
 
 //
 // Resources allocation.
@@ -274,6 +280,7 @@ void vk_bind_index_ext( const int numIndexes, const uint32_t*indexes );
 void vk_bind_geometry( uint32_t flags );
 void vk_bind_lighting( int stage, int bundle );
 void vk_draw_geometry( Vk_Depth_Range depth_range, qboolean indexed );
+void vk_draw_dot( uint32_t storage_offset );
 
 void vk_read_pixels( byte* buffer, uint32_t width, uint32_t height ); // screenshots
 qboolean vk_bloom( void );
@@ -283,8 +290,9 @@ void vk_update_mvp( const float *m );
 
 uint32_t vk_tess_index( uint32_t numIndexes, const void *src );
 void vk_bind_index_buffer( VkBuffer buffer, uint32_t offset );
+#ifdef USE_VBO
 void vk_draw_indexed( uint32_t indexCount, uint32_t firstIndex );
-
+#endif
 void vk_reset_descriptor( int index );
 void vk_update_descriptor( int index, VkDescriptorSet descriptor );
 void vk_update_descriptor_offset( int index, uint32_t offset );
@@ -301,7 +309,12 @@ typedef struct vk_tess_s {
 	VkCommandBuffer command_buffer;
 
 	VkSemaphore image_acquired;
+	uint32_t	swapchain_image_index;
+	qboolean	swapchain_image_acquired;
 	VkSemaphore rendering_finished;
+#ifdef USE_UPLOAD_QUEUE
+	VkSemaphore rendering_finished2;
+#endif
 	VkFence rendering_finished_fence;
 	qboolean waitForFence;
 
@@ -319,8 +332,8 @@ typedef struct vk_tess_s {
 
 	struct {
 		uint32_t		start, end;
-		VkDescriptorSet	current[6]; // 0:storage, 1:uniform, 2:color0, 3:color1, 4:color2, 5:fog
-		uint32_t		offset[2]; // 0 (uniform) and 5 (storage)
+		VkDescriptorSet	current[5]; // 0:uniform, 1:color0, 2:color1, 3:color2, 4:fog
+		uint32_t		offset[1]; // 0 (uniform)
 	} descriptor_set;
 
 	Vk_Depth_Range		depth_range;
@@ -347,9 +360,12 @@ typedef struct {
 	uint32_t swapchain_image_count;
 	VkImage swapchain_images[MAX_SWAPCHAIN_IMAGES];
 	VkImageView swapchain_image_views[MAX_SWAPCHAIN_IMAGES];
-	uint32_t swapchain_image_index;
+	//uint32_t swapchain_image_index;
 
 	VkCommandPool command_pool;
+#ifdef USE_UPLOAD_QUEUE
+	VkCommandBuffer staging_command_buffer;
+#endif
 
 	VkDeviceMemory image_memory[ MAX_ATTACHMENTS_IN_POOL ];
 	uint32_t image_memory_count;
@@ -370,7 +386,7 @@ typedef struct {
 	VkDescriptorSetLayout set_layout_storage;	// feedback buffer
 
 	VkPipelineLayout pipeline_layout;			// default shaders
-	//VkPipelineLayout pipeline_layout_storage;	// flare test shader layout
+	VkPipelineLayout pipeline_layout_storage;	// flare test shader layout
 	VkPipelineLayout pipeline_layout_post_process;	// post-processing
 	VkPipelineLayout pipeline_layout_blend;		// post-processing
 
@@ -417,6 +433,12 @@ typedef struct {
 		VkFramebuffer screenmap;
 		VkFramebuffer capture;
 	} framebuffers;
+
+#ifdef USE_UPLOAD_QUEUE
+	VkSemaphore rendering_finished;	// reference to vk.cmd->rendering_finished2
+	VkSemaphore image_uploaded2;
+	VkSemaphore image_uploaded;		// reference to vk.image_uploaded2
+#endif
 
 	vk_tess_t tess[ NUM_COMMAND_BUFFERS ], *cmd;
 	int cmd_index;
@@ -534,6 +556,7 @@ typedef struct {
 	uint32_t surface_debug_pipeline_solid;
 	uint32_t surface_debug_pipeline_outline;
 	uint32_t images_debug_pipeline;
+	uint32_t images_debug_pipeline2;
 	uint32_t surface_beam_pipeline;
 	uint32_t surface_axis_pipeline;
 	uint32_t dot_pipeline;
@@ -562,7 +585,7 @@ typedef struct {
 
 	VkImageLayout initSwapchainLayout;
 
-	qboolean fastSky;		// requires VK_IMAGE_USAGE_TRANSFER_DST_BIT
+	qboolean clearAttachment;		// requires VK_IMAGE_USAGE_TRANSFER_DST_BIT for swapchains
 	qboolean fboActive;
 	qboolean blitEnabled;
 	qboolean msaaActive;
@@ -589,6 +612,11 @@ typedef struct {
 	uint32_t image_chunk_size;
 
 	uint32_t maxBoundDescriptorSets;
+
+#ifdef USE_UPLOAD_QUEUE
+	VkFence aux_fence;
+	qboolean aux_fence_wait;
+#endif
 
 } Vk_Instance;
 
@@ -618,6 +646,9 @@ typedef struct {
 	VkDeviceMemory staging_buffer_memory;
 	VkDeviceSize staging_buffer_size;
 	byte *staging_buffer_ptr; // pointer to mapped staging buffer
+#ifdef USE_UPLOAD_QUEUE
+	VkDeviceSize staging_buffer_offset;
+#endif
 
 	//
 	// State.

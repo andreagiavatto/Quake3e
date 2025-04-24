@@ -27,6 +27,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 extern	botlib_export_t	*botlib_export;
 
+static int nestedCmdOffset; // nested command buffer offset
+
 //extern qboolean loadCamera(const char *name);
 //extern void startCamera(int time);
 //extern qboolean getCameraInfo(int time, vec3_t *origin, vec3_t *angles);
@@ -436,6 +438,11 @@ static qboolean CL_GetValue( char* value, int valueSize, const char* key ) {
 		return qtrue;
 	}
 
+	if ( !Q_stricmp( key, "trap_Cvar_SetDescription_Q3E" ) ) {
+		Com_sprintf( value, valueSize, "%i", CG_CVAR_SETDESCRIPTION );
+		return qtrue;
+	}
+
 	return qfalse;
 }
 
@@ -509,7 +516,7 @@ static intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 
 	case CG_SENDCONSOLECOMMAND: {
 		const char *cmd = VMA(1);
-		Cbuf_NestedAdd( cmd );
+		nestedCmdOffset = Cbuf_Add( cmd, nestedCmdOffset );
 		return 0;
 	}
 	case CG_ADDCOMMAND:
@@ -779,6 +786,10 @@ static intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 	case CG_IS_RECORDING_DEMO:
 		return clc.demorecording;
 
+	case CG_CVAR_SETDESCRIPTION:
+		Cvar_SetDescription2( (const char*)VMA(1), (const char*)VMA(2) );
+		return 0;
+
 	case CG_TRAP_GETVALUE:
 		VM_CHECKBOUNDS( cgvm, args[1], args[2] );
 		return CL_GetValue( VMA(1), args[2], VMA(3) );
@@ -827,7 +838,7 @@ void CL_InitCGame( void ) {
 	int					t1, t2;
 	vmInterpret_t		interpret;
 
-	Cbuf_NestedReset();
+	nestedCmdOffset = 0;
 
 	t1 = Sys_Milliseconds();
 
@@ -908,7 +919,7 @@ qboolean CL_GameCommand( void ) {
 
 	bRes = (qboolean)VM_Call( cgvm, 0, CG_CONSOLE_COMMAND );
 
-	Cbuf_NestedReset();
+	nestedCmdOffset = 0;
 
 	return bRes;
 }
