@@ -1,0 +1,2537 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index 652554d6..40f9309d 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -22,8 +22,8 @@ on:
+ 
+ jobs:
+   windows-msys:
+-    name: ${{ matrix.btype }} Windows-${{ matrix.cc }} ${{ matrix.arch }}
+-    runs-on: windows-2022
++    name: ${{ matrix.btype }} Windows-GCC ${{ matrix.arch }}
++    runs-on: windows-2019
+     strategy:
+       fail-fast: false
+       matrix:
+@@ -53,12 +53,11 @@ jobs:
+ 
+     - uses: msys2/setup-msys2@v2
+       with:
+-        install: base-devel ${{ matrix.prefix }}-binutils ${{ matrix.prefix }}-make ${{ matrix.prefix }}-${{ matrix.cc }}
++        install: ${{ matrix.prefix }}-binutils ${{ matrix.prefix }}-make ${{ matrix.prefix }}-${{ matrix.cc }}
+         msystem: ${{ matrix.msystem }}
+         path-type: minimal
+         release: false
+         update: false
+-        cache: false
+ 
+     - uses: actions/checkout@v4
+       with:
+@@ -67,70 +66,13 @@ jobs:
+     - name: Build
+       if: ${{ github.event_name != 'release' || matrix.btype != 'Debug' }} # skip Debug configuration in Release build
+       run: |
++        make clean ARCH=${{ matrix.arch }}
+         make ${{ matrix.rule }} -j$(nproc) ARCH=${{ matrix.arch }} CC=${{ matrix.cc }} DESTDIR=bin USE_SDL=0 USE_RENDERER_DLOPEN=0 RENDERER_DEFAULT=vulkan CNAME=quake3e-vulkan BUILD_SERVER=0
+         make clean ARCH=${{ matrix.arch }}
+         make ${{ matrix.rule }} -j$(nproc) ARCH=${{ matrix.arch }} CC=${{ matrix.cc }} DESTDIR=bin USE_SDL=0 USE_RENDERER_DLOPEN=0 RENDERER_DEFAULT=opengl
+ 
+     - uses: actions/upload-artifact@v4
+-      if: matrix.cc == 'gcc' && matrix.btype == 'Release'
+-      with:
+-        name: windows-${{ matrix.cc }}-${{ matrix.arch }}
+-        path: bin
+-        if-no-files-found: error
+-        retention-days: 5
+-
+-  windows-msys32:
+-    name: ${{ matrix.btype }} Windows-msys32 ${{ matrix.arch }}
+-    runs-on: windows-latest
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        arch: [x86, x86_64]
+-#       btype: [Release, Debug]
+-        btype: [Release]
+-        include:
+-          - arch: x86
+-            prefix: mingw-w64-i686
+-
+-          - arch: x86_64
+-            prefix: mingw-w64-x86_64
+-
+-          - btype: Release
+-            rule: install
+-
+-#         - btype: Debug
+-#           rule: debug
+-
+-    steps:
+-    - name: Checkout current repo
+-      uses: actions/checkout@v4
+-
+-    - name: Checkout msys32 tools from sibling repo
+-      uses: actions/checkout@v4
+-      with:
+-        repository: ec-/msys32
+-        path: msys
+-
+-    - name: Extract msys32.7z
+-      run: |
+-        7z x %GITHUB_WORKSPACE%/msys/msys32.7z -o%GITHUB_WORKSPACE%/msys
+-      shell: cmd
+-
+-    - name: Prepend msys/bin to PATH
+-      run: |
+-           echo "PATH=$GITHUB_WORKSPACE/msys/mingw/bin;$GITHUB_WORKSPACE/msys/bin;$GITHUB_WORKSPACE/msys" >> $GITHUB_ENV
+-      shell: bash
+-
+-    - name: Build
+-      if: ${{ github.event_name != 'release' || matrix.btype != 'Debug' }} # skip Debug configuration in Release build
+-      shell: cmd
+-      run: |
+-        make ${{ matrix.rule }} ARCH=${{ matrix.arch }} DESTDIR=bin USE_SDL=0 USE_RENDERER_DLOPEN=0 RENDERER_DEFAULT=vulkan CNAME=quake3e-vulkan BUILD_SERVER=0
+-        make clean ARCH=${{ matrix.arch }}
+-        make ${{ matrix.rule }} ARCH=${{ matrix.arch }} DESTDIR=bin USE_SDL=0 USE_RENDERER_DLOPEN=0 RENDERER_DEFAULT=opengl
+-
+-    - uses: actions/upload-artifact@v4
+-      if: matrix.btype == 'Release'
++      if: matrix.cc == 'gcc' && matrix.btype == 'release'
+       with:
+         name: windows-mingw-${{ matrix.arch }}
+         path: bin
+@@ -139,7 +81,7 @@ jobs:
+ 
+   windows-msvc:
+     name: ${{ matrix.btype }} Windows-MSVC ${{ matrix.arch }}
+-    runs-on: windows-2022
++    runs-on: windows-2019
+     strategy:
+       fail-fast: false
+       matrix:
+@@ -173,24 +115,24 @@ jobs:
+       run: |
+         mkdir bin
+ 
+-        msbuild code\win32\msvc2017\quake3e-ded.vcxproj -p:TargetName=quake3e.ded,Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }} /p:PlatformToolset=v143
++        msbuild code\win32\msvc2017\quake3e-ded.vcxproj -p:TargetName=quake3e.ded,Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }}
+         copy code\win32\msvc2017\output\quake3e.ded.exe bin\quake3e.ded${{ matrix.suffix }}.exe
+         msbuild code\win32\msvc2017\quake3e-ded.vcxproj -p:TargetName=quake3e.ded,Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }} -t:Clean
+ 
+-        msbuild code\win32\msvc2017\renderer.vcxproj -p:Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }} /p:PlatformToolset=v143
+-        msbuild code\win32\msvc2017\quake3e.vcxproj -p:TargetName=quake3e,Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }},UseWasapi=USE_WASAPI=0 /p:PlatformToolset=v143
++        msbuild code\win32\msvc2017\renderer.vcxproj -p:Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }}
++        msbuild code\win32\msvc2017\quake3e.vcxproj -p:TargetName=quake3e,Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }},UseWasapi=USE_WASAPI=0
+         copy code\win32\msvc2017\output\quake3e.exe bin\quake3e${{ matrix.suffix }}.exe
+         msbuild code\win32\msvc2017\renderer.vcxproj -p:Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }} -t:Clean
+         msbuild code\win32\msvc2017\quake3e.vcxproj -p:TargetName=quake3e,Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }},UseWasapi=USE_WASAPI=0 -t:Clean
+ 
+-        msbuild code\win32\msvc2017\renderervk.vcxproj -p:Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }} /p:PlatformToolset=v143
+-        msbuild code\win32\msvc2017\quake3e.vcxproj -p:TargetName=quake3e,Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }},UseWasapi=USE_WASAPI=0 /p:PlatformToolset=v143
++        msbuild code\win32\msvc2017\renderervk.vcxproj -p:Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }}
++        msbuild code\win32\msvc2017\quake3e.vcxproj -p:TargetName=quake3e,Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }},UseWasapi=USE_WASAPI=0
+         copy code\win32\msvc2017\output\quake3e.exe bin\quake3e-vulkan${{ matrix.suffix }}.exe
+         msbuild code\win32\msvc2017\renderervk.vcxproj -p:Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }} -t:Clean
+         msbuild code\win32\msvc2017\quake3e.vcxproj -p:TargetName=quake3e,Configuration=${{ matrix.btype }},Platform=${{ matrix.platform }},UseWasapi=USE_WASAPI=0 -t:Clean
+ 
+     - uses: actions/upload-artifact@v4
+-      if: ${{ matrix.btype == 'Release' }}
++      if: ${{ matrix.btype == 'release' }}
+       with:
+         name: windows-msvc-${{ matrix.pkg_suffix }}
+         path: bin
+@@ -245,7 +187,7 @@ jobs:
+         make ${{ matrix.rule }} -j$(nproc) ARCH=${{ matrix.arch }} CC=${{ matrix.cc }} DESTDIR=bin ${{ matrix.use_sdl }} USE_RENDERER_DLOPEN=0 RENDERER_DEFAULT=opengl
+ 
+     - uses: actions/upload-artifact@v4
+-      if: matrix.cc == 'gcc' && matrix.btype == 'Release'
++      if: matrix.cc == 'gcc' && matrix.btype == 'release'
+       with:
+         name: linux-${{ matrix.arch }}
+         path: bin
+@@ -303,7 +245,7 @@ jobs:
+ 
+   macos-x86:
+     name: ${{ matrix.btype }} macOS ${{ matrix.arch }}
+-    runs-on: macos-14
++    runs-on: macos-latest
+     strategy:
+       fail-fast: false
+       matrix:
+@@ -334,7 +276,7 @@ jobs:
+         make ${{ matrix.rule }} -j$(sysctl -n hw.logicalcpu) ARCH=${{ matrix.arch }} CC=${{ matrix.cc }} DESTDIR=bin INSTALL=ginstall USE_RENDERER_DLOPEN=0 RENDERER_DEFAULT=opengl STRIP=echo
+ 
+     - uses: actions/upload-artifact@v4
+-      if: matrix.cc == 'clang' && matrix.btype == 'Release'
++      if: matrix.cc == 'clang' && matrix.btype == 'release'
+       with:
+         name: macos-${{ matrix.arch }}
+         path: bin
+@@ -343,7 +285,7 @@ jobs:
+ 
+   create-testing:
+     if: github.ref == 'refs/heads/master' && github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+-    needs: [windows-msys32, windows-msvc, ubuntu-x86, ubuntu-arm, macos-x86]
++    needs: [windows-msys, windows-msvc, ubuntu-x86, ubuntu-arm, macos-x86]
+     runs-on: ubuntu-latest
+     steps:
+       - name: Download Artifacts
+@@ -355,13 +297,13 @@ jobs:
+           7z a -r quake3e-linux-x86_64.zip         ./linux-x86_64/*
+           7z a -r quake3e-windows-mingw-x86.zip    ./windows-mingw-x86/*
+           7z a -r quake3e-windows-mingw-x86_64.zip ./windows-mingw-x86_64/*
++          7z a -r quake3e-windows-msvc-x86.zip     ./windows-msvc-x86/*
++          7z a -r quake3e-windows-msvc-x86_64.zip  ./windows-msvc-x86_64/*
+           7z a -r quake3e-windows-msvc-arm64.zip   ./windows-msvc-arm64/*
+           7z a -r quake3e-macos-x86_64.zip         ./macos-x86_64/*
+           7z a -r quake3e-macos-aarch64.zip        ./macos-aarch64/*
+ #         7z a -r quake3e-linux-aarch64.zip        ./linux-aarch64/*
+ #         7z a -r quake3e-linux-armv7.zip          ./linux-armv7/*
+-#         7z a -r quake3e-windows-msvc-x86.zip     ./windows-msvc-x86/*
+-#         7z a -r quake3e-windows-msvc-x86_64.zip  ./windows-msvc-x86_64/*
+ 
+       - name: Create latest build
+         uses: czietz/action-automatic-releases@latest
+@@ -375,7 +317,7 @@ jobs:
+ 
+   update-release:
+     if: ${{ github.event_name == 'release' }}
+-    needs: [windows-msys32, windows-msvc, ubuntu-x86, ubuntu-arm, macos-x86]
++    needs: [windows-msys, windows-msvc, ubuntu-x86, ubuntu-arm, macos-x86]
+     runs-on: ubuntu-latest
+ 
+     strategy:
+@@ -394,12 +336,21 @@ jobs:
+             artifact_name: quake3e-linux-x86_64.zip
+ 
+           - artifact_dir: windows-mingw-x86
++#           artifact_name: quake3e-windows-mingw-x86.zip
+             artifact_name: quake3e-windows-x86.zip 
+ 
+           - artifact_dir: windows-mingw-x86_64
++#           artifact_name: quake3e-windows-mingw-x86_64.zip
+             artifact_name: quake3e-windows-x86_64.zip
+ 
++#         - artifact_dir: windows-msvc-x86
++#           artifact_name: quake3e-windows-msvc-x86.zip
++
++#         - artifact_dir: windows-msvc-x86_64
++#           artifact_name: quake3e-windows-msvc-x86_64.zip
++
+           - artifact_dir: windows-msvc-arm64
++#           artifact_name: quake3e-windows-msvc-arm64.zip
+             artifact_name: quake3e-windows-arm64.zip
+ 
+           - artifact_dir: macos-x86_64
+@@ -422,4 +373,3 @@ jobs:
+           tag: ${{ github.ref }}
+           overwrite: true
+           file: ${{ matrix.artifact_name }}
+-
+diff --git a/Makefile b/Makefile
+index 37c284cb..874af513 100644
+--- a/Makefile
++++ b/Makefile
+@@ -36,14 +36,14 @@ USE_SYSTEM_OGG    = 0
+ USE_SYSTEM_VORBIS = 0
+ 
+ USE_VULKAN       = 1
+-USE_OPENGL       = 1
++USE_OPENGL       = 0
+ USE_OPENGL2      = 0
+-USE_OPENGL_API   = 1
++USE_OPENGL_API   = 0
+ USE_VULKAN_API   = 1
+ USE_RENDERER_DLOPEN = 1
+ 
+ # valid options: opengl, vulkan, opengl2
+-RENDERER_DEFAULT = opengl
++RENDERER_DEFAULT = vulkan
+ 
+ CNAME            = quake3e
+ DNAME            = quake3e.ded
+@@ -360,30 +360,24 @@ ifdef MINGW
+     # If CC is already set to something generic, we probably want to use
+     # something more specific
+     ifneq ($(findstring $(strip $(CC)),cc gcc),)
+-      override CC=
+-    endif
+-
+-    ifneq ($(findstring $(strip $(STRIP)),strip),)
+-      override STRIP=
++      CC=
+     endif
+ 
+     # We need to figure out the correct gcc and windres
+     ifeq ($(ARCH),x86_64)
+       MINGW_PREFIXES=x86_64-w64-mingw32 amd64-mingw32msvc
++      STRIP=x86_64-w64-mingw32-strip
+     endif
+     ifeq ($(ARCH),x86)
+       MINGW_PREFIXES=i686-w64-mingw32 i586-mingw32msvc i686-pc-mingw32
+     endif
+ 
+     ifndef CC
+-      override CC=$(firstword $(strip $(foreach MINGW_PREFIX, $(MINGW_PREFIXES), \
++      CC=$(firstword $(strip $(foreach MINGW_PREFIX, $(MINGW_PREFIXES), \
+          $(call bin_path, $(MINGW_PREFIX)-gcc))))
+     endif
+ 
+-    ifndef STRIP
+-      override STRIP=$(firstword $(strip $(foreach MINGW_PREFIX, $(MINGW_PREFIXES), \
+-         $(call bin_path, $(MINGW_PREFIX)-strip))))
+-    endif
++#   STRIP=$(MINGW_PREFIX)-strip -g
+ 
+     ifndef WINDRES
+       WINDRES=$(firstword $(strip $(foreach MINGW_PREFIX, $(MINGW_PREFIXES), \
+@@ -393,7 +387,7 @@ ifdef MINGW
+     # Some MinGW installations define CC to cc, but don't actually provide cc,
+     # so check that CC points to a real binary and use gcc if it doesn't
+     ifeq ($(call bin_path, $(CC)),)
+-      override CC=gcc
++      CC=gcc
+     endif
+ 
+   endif
+@@ -493,11 +487,11 @@ ifeq ($(COMPILE_PLATFORM),darwin)
+ 
+   ifeq ($(ARCH),x86_64)
+     BASE_CFLAGS += -arch x86_64
+-    LDFLAGS += -arch x86_64
++    LDFLAGS = -arch x86_64 -F/System/Library/Frameworks -framework IOKit -framework CoreFoundation
+   endif
+   ifeq ($(ARCH),aarch64)
+     BASE_CFLAGS += -arch arm64
+-    LDFLAGS += -arch arm64
++    LDFLAGS = -arch arm64 -F/System/Library/Frameworks -framework IOKit -framework CoreFoundation
+   endif
+ 
+   ifeq ($(USE_LOCAL_HEADERS),1)
+@@ -655,11 +649,6 @@ $(echo_cmd) "CC $<"
+ $(Q)$(CC) $(CFLAGS) -o $@ -c $<
+ endef
+ 
+-define DO_CC_QVM
+-$(echo_cmd) "CC_QVM $<"
+-$(Q)$(CC) $(CFLAGS) -fno-fast-math -o $@ -c $<
+-endef
+-
+ define DO_REND_CC
+ $(echo_cmd) "REND_CC $<"
+ $(Q)$(CC) $(CFLAGS) $(RENDCFLAGS) -o $@ -c $<
+@@ -686,11 +675,6 @@ $(echo_cmd) "DED_CC $<"
+ $(Q)$(CC) $(CFLAGS) -DDEDICATED -o $@ -c $<
+ endef
+ 
+-define DO_DED_CC_QVM
+-$(echo_cmd) "DED_CC_QVM $<"
+-$(Q)$(CC) $(CFLAGS) -fno-fast-math -DDEDICATED -o $@ -c $<
+-endef
+-
+ define DO_WINDRES
+ $(echo_cmd) "WINDRES $<"
+ $(Q)$(WINDRES) -i $< -o $@
+@@ -747,7 +731,6 @@ targets: makedirs tools
+ 	@echo "  COMPILE_ARCH: $(COMPILE_ARCH)"
+ ifdef MINGW
+ 	@echo "  WINDRES: $(WINDRES)"
+-	@echo "  STRIP: $(STRIP)"
+ endif
+ 	@echo "  CC: $(CC)"
+ 	@echo ""
+@@ -770,7 +753,7 @@ endif
+ makedirs:
+ 	@if [ ! -d $(BUILD_DIR) ];then $(MKDIR) $(BUILD_DIR);fi
+ 	@if [ ! -d $(B) ];then $(MKDIR) $(B);fi
+-	@if [ ! -d $(B)/client ];then $(MKDIR) $(B)/client/qvm;fi
++	@if [ ! -d $(B)/client ];then $(MKDIR) $(B)/client;fi
+ 	@if [ ! -d $(B)/client/jpeg ];then $(MKDIR) $(B)/client/jpeg;fi
+ ifeq ($(USE_SYSTEM_OGG),0)
+ 	@if [ ! -d $(B)/client/ogg ];then $(MKDIR) $(B)/client/ogg;fi
+@@ -783,7 +766,7 @@ endif
+ 	@if [ ! -d $(B)/rend2/glsl ];then $(MKDIR) $(B)/rend2/glsl;fi
+ 	@if [ ! -d $(B)/rendv ];then $(MKDIR) $(B)/rendv;fi
+ ifneq ($(BUILD_SERVER),0)
+-	@if [ ! -d $(B)/ded ];then $(MKDIR) $(B)/ded/qvm;fi
++	@if [ ! -d $(B)/ded ];then $(MKDIR) $(B)/ded;fi
+ endif
+ 
+ #############################################################################
+@@ -1087,6 +1070,8 @@ Q3OBJ = \
+   \
+   $(B)/client/unzip.o \
+   $(B)/client/puff.o \
++  $(B)/client/vm.o \
++  $(B)/client/vm_interpreted.o \
+   \
+   $(B)/client/be_aas_bspq3.o \
+   $(B)/client/be_aas_cluster.o \
+@@ -1152,22 +1137,18 @@ ifeq ($(ARCH),x86_64)
+     $(B)/client/snd_mix_x86_64.o
+ endif
+ 
+-Q3OBJ += \
+-  $(B)/client/qvm/vm.o \
+-  $(B)/client/qvm/vm_interpreted.o
+-
+ ifeq ($(HAVE_VM_COMPILED),true)
+   ifeq ($(ARCH),x86)
+-    Q3OBJ += $(B)/client/qvm/vm_x86.o
++    Q3OBJ += $(B)/client/vm_x86.o
+   endif
+   ifeq ($(ARCH),x86_64)
+-    Q3OBJ += $(B)/client/qvm/vm_x86.o
++    Q3OBJ += $(B)/client/vm_x86.o
+   endif
+   ifeq ($(ARCH),arm)
+-    Q3OBJ += $(B)/client/qvm/vm_armv7l.o
++    Q3OBJ += $(B)/client/vm_armv7l.o
+   endif
+   ifeq ($(ARCH),aarch64)
+-    Q3OBJ += $(B)/client/qvm/vm_aarch64.o
++    Q3OBJ += $(B)/client/vm_aarch64.o
+   endif
+ endif
+ 
+@@ -1245,7 +1226,8 @@ endif # !MINGW
+ 
+ $(B)/$(TARGET_CLIENT): $(Q3OBJ)
+ 	$(echo_cmd) "LD $@"
+-	$(Q)$(CC) -o $@ $(Q3OBJ) $(CLIENT_LDFLAGS) $(LDFLAGS)
++	$(Q)$(CC) -o $@ $(Q3OBJ) $(CLIENT_LDFLAGS) \
++		$(LDFLAGS)
+ 
+ # modular renderers
+ 
+@@ -1304,6 +1286,8 @@ Q3DOBJ = \
+   $(B)/ded/q_shared.o \
+   \
+   $(B)/ded/unzip.o \
++  $(B)/ded/vm.o \
++  $(B)/ded/vm_interpreted.o \
+   \
+   $(B)/ded/be_aas_bspq3.o \
+   $(B)/ded/be_aas_cluster.o \
+@@ -1347,27 +1331,22 @@ else
+   $(B)/ded/unix_shared.o
+ endif
+ 
+-  Q3DOBJ += \
+-  $(B)/ded/qvm/vm.o \
+-  $(B)/ded/qvm/vm_interpreted.o
+-
+ ifeq ($(HAVE_VM_COMPILED),true)
+   ifeq ($(ARCH),x86)
+-    Q3DOBJ += $(B)/ded/qvm/vm_x86.o
++    Q3DOBJ += $(B)/ded/vm_x86.o
+   endif
+   ifeq ($(ARCH),x86_64)
+-    Q3DOBJ += $(B)/ded/qvm/vm_x86.o
++    Q3DOBJ += $(B)/ded/vm_x86.o
+   endif
+   ifeq ($(ARCH),arm)
+-    Q3DOBJ += $(B)/ded/qvm/vm_armv7l.o
++    Q3DOBJ += $(B)/ded/vm_armv7l.o
+   endif
+   ifeq ($(ARCH),aarch64)
+-    Q3DOBJ += $(B)/ded/qvm/vm_aarch64.o
++    Q3DOBJ += $(B)/ded/vm_aarch64.o
+   endif
+ endif
+ 
+ $(B)/$(TARGET_SERVER): $(Q3DOBJ)
+-	$(echo_cmd) $(Q3DOBJ)
+ 	$(echo_cmd) "LD $@"
+ 	$(Q)$(CC) -o $@ $(Q3DOBJ) $(LDFLAGS)
+ 
+@@ -1387,9 +1366,6 @@ $(B)/client/%.o: $(SDIR)/%.c
+ $(B)/client/%.o: $(CMDIR)/%.c
+ 	$(DO_CC)
+ 
+-$(B)/client/qvm/%.o: $(CMDIR)/%.c
+-	$(DO_CC_QVM)
+-
+ $(B)/client/%.o: $(BLIBDIR)/%.c
+ 	$(DO_BOT_CC)
+ 
+@@ -1456,9 +1432,6 @@ $(B)/ded/%.o: $(SDIR)/%.c
+ $(B)/ded/%.o: $(CMDIR)/%.c
+ 	$(DO_DED_CC)
+ 
+-$(B)/ded/qvm/%.o: $(CMDIR)/%.c
+-	$(DO_DED_CC_QVM)
+-
+ $(B)/ded/%.o: $(BLIBDIR)/%.c
+ 	$(DO_BOT_CC)
+ 
+diff --git a/code/client/cl_input.c b/code/client/cl_input.c
+index 32cd875f..2c2206d3 100644
+--- a/code/client/cl_input.c
++++ b/code/client/cl_input.c
+@@ -440,95 +440,53 @@ CL_MouseMove
+ */
+ static void CL_MouseMove( usercmd_t *cmd )
+ {
+-	float mx, my;
++	float	mx, my;
++	float	accelSensitivity;
++	float	rate;
+ 
+ 	// allow mouse smoothing
+-	if (m_filter->integer)
+-	{
+-		mx = (cl.mouseDx[0] + cl.mouseDx[1]) * 0.5f;
+-		my = (cl.mouseDy[0] + cl.mouseDy[1]) * 0.5f;
+-	}
+-	else
+-	{
++	if ( m_filter->integer ) {
++		mx = ( cl.mouseDx[0] + cl.mouseDx[1] ) * 0.5;
++		my = ( cl.mouseDy[0] + cl.mouseDy[1] ) * 0.5;
++	} else {
+ 		mx = cl.mouseDx[cl.mouseIndex];
+ 		my = cl.mouseDy[cl.mouseIndex];
+ 	}
+-
+ 	cl.mouseIndex ^= 1;
+ 	cl.mouseDx[cl.mouseIndex] = 0;
+ 	cl.mouseDy[cl.mouseIndex] = 0;
+ 
+-	if (mx == 0.0f && my == 0.0f)
+-		return;
++	rate = sqrt( mx * mx + my * my ) / (float)frame_msec;
++	accelSensitivity = cl_sensitivity->value + rate * cl_mouseAccel->value;
+ 
+-	if ( cl_mouseAccel->value != 0.0f )
+-	{
+-		if ( cl_mouseAccelStyle->integer == 0 )
+-		{
+-			float accelSensitivity;
+-			float rate;
++	// scale by FOV
++	accelSensitivity *= cl.cgameSensitivity;
+ 
+-			rate = sqrt(mx * mx + my * my) / (float) frame_msec;
++	if ( rate && cl_showMouseRate->integer ) {
++		Com_Printf( "%f : %f\n", rate, accelSensitivity );
++	}
+ 
+-			accelSensitivity = cl_sensitivity->value + rate * cl_mouseAccel->value;
+-			mx *= accelSensitivity;
+-			my *= accelSensitivity;
++	mx *= accelSensitivity;
++	my *= accelSensitivity;
+ 
+-			if ( cl_showMouseRate->integer )
+-				Com_Printf( "rate: %f, accelSensitivity: %f\n", rate, accelSensitivity );
+-		}
+-		else
+-		{
+-			float rate[2];
+-			float power[2];
+-			float offset = cl_mouseAccelOffset->value;
+-
+-			// clip at a small positive number to avoid division
+-			// by zero (or indeed going backwards!)
+-			if ( offset < 0.001f ) {
+-				offset = 0.001f;
+-			}
+-
+-			// sensitivity remains pretty much unchanged at low speeds
+-			// cl_mouseAccel is a power value to how the acceleration is shaped
+-			// cl_mouseAccelOffset is the rate for which the acceleration will have doubled the non accelerated amplification
+-			// NOTE: decouple the config cvars for independent acceleration setup along X and Y?
+-
+-			rate[0] = fabsf( mx ) / (float) frame_msec;
+-			rate[1] = fabsf( my ) / (float) frame_msec;
+-			power[0] = powf( rate[0] / offset, cl_mouseAccel->value );
+-			power[1] = powf( rate[1] / offset, cl_mouseAccel->value );
+-
+-			mx = cl_sensitivity->value * (mx + ((mx < 0) ? -power[0] : power[0]) * offset);
+-			my = cl_sensitivity->value * (my + ((my < 0) ? -power[1] : power[1]) * offset);
+-
+-			if(cl_showMouseRate->integer)
+-				Com_Printf("ratex: %f, ratey: %f, powx: %f, powy: %f\n", rate[0], rate[1], power[0], power[1]);
+-		}
+-	}
+-	else
+-	{
+-		mx *= cl_sensitivity->value;
+-		my *= cl_sensitivity->value;
++	if (!mx && !my) {
++		return;
+ 	}
+ 
+-	// ingame FOV
+-	mx *= cl.cgameSensitivity;
+-	my *= cl.cgameSensitivity;
+-
+ 	// add mouse X/Y movement to cmd
+-	if ( in_strafe.active )
+-		cmd->rightmove = ClampCharMove( cmd->rightmove + m_side->value * mx );
+-	else
++	if ( in_strafe.active ) {
++		cmd->rightmove = ClampChar( cmd->rightmove + m_side->value * mx );
++	} else {
+ 		cl.viewangles[YAW] -= m_yaw->value * mx;
++	}
+ 
+-	if ( (in_mlooking || cl_freelook->integer) && !in_strafe.active )
++	if ( (in_mlooking || cl_freelook->integer) && !in_strafe.active ) {
+ 		cl.viewangles[PITCH] += m_pitch->value * my;
+-	else
+-		cmd->forwardmove = ClampCharMove( cmd->forwardmove - m_forward->value * my );
++	} else {
++		cmd->forwardmove = ClampChar( cmd->forwardmove - m_forward->value * my );
++	}
+ }
+ 
+-
+ /*
+ ==============
+ CL_CmdButtons
+diff --git a/code/qcommon/cm_test.c b/code/qcommon/cm_test.c
+index 036bba36..d031f9bd 100644
+--- a/code/qcommon/cm_test.c
++++ b/code/qcommon/cm_test.c
+@@ -462,7 +462,7 @@ int CM_WriteAreaBits (byte *buffer, int area)
+ #ifndef BSPC
+ 	if (cm_noAreas->integer || area == -1)
+ #else
+-	if (area == -1)
++	if ( area == -1)
+ #endif
+ 	{	// for debugging, send everything
+ 		Com_Memset (buffer, 255, bytes);
+@@ -472,7 +472,7 @@ int CM_WriteAreaBits (byte *buffer, int area)
+ 		floodnum = cm.areas[area].floodnum;
+ 		for (i=0 ; i<cm.numAreas ; i++)
+ 		{
+-			if (cm.areas[i].floodnum == floodnum)
++			if (cm.areas[i].floodnum == floodnum || area == -1)
+ 				buffer[i>>3] |= 1<<(i&7);
+ 		}
+ 	}
+diff --git a/code/qcommon/common.c b/code/qcommon/common.c
+index fd2eca17..08183c59 100644
+--- a/code/qcommon/common.c
++++ b/code/qcommon/common.c
+@@ -3476,9 +3476,8 @@ static void Sys_GetProcessorId( char *vendor )
+ 
+ #else // __linux__
+ 
+-#include <sys/auxv.h>
+-
+ #if arm32
++#include <sys/auxv.h>
+ #include <asm/hwcap.h>
+ #endif
+ 
+diff --git a/code/qcommon/q_shared.h b/code/qcommon/q_shared.h
+index 8eb3dccd..e7f208bd 100644
+--- a/code/qcommon/q_shared.h
++++ b/code/qcommon/q_shared.h
+@@ -173,7 +173,7 @@ float FloatSwap( const float *f );
+ 		typedef __int64 int64_t;
+ 		typedef __int32 int32_t;
+ 		typedef __int16 int16_t;
+-		typedef signed __int8 int8_t;
++		typedef __int8 int8_t;
+ 		typedef unsigned __int64 uint64_t;
+ 		typedef unsigned __int32 uint32_t;
+ 		typedef unsigned __int16 uint16_t;
+diff --git a/code/renderer/tr_image.c b/code/renderer/tr_image.c
+index 93c18a02..267696a4 100644
+--- a/code/renderer/tr_image.c
++++ b/code/renderer/tr_image.c
+@@ -601,9 +601,9 @@ Upload32
+ static void Upload32( byte *data, int x, int y, int width, int height, image_t *image, qboolean subImage )
+ {
+ 	qboolean allowCompression = !(image->flags & IMGFLAG_NO_COMPRESSION);
+-	qboolean lightMap = (image->flags & IMGFLAG_LIGHTMAP) ? qtrue : qfalse;
+-	qboolean mipmap = (image->flags & IMGFLAG_MIPMAP) ? qtrue : qfalse;
+-	qboolean picmip = (image->flags & IMGFLAG_PICMIP) ? qtrue : qfalse;
++	qboolean lightMap = image->flags & IMGFLAG_LIGHTMAP;
++	qboolean mipmap = image->flags & IMGFLAG_MIPMAP;
++	qboolean picmip = image->flags & IMGFLAG_PICMIP;
+ 	byte		*resampledBuffer = NULL;
+ 	int			scaled_width, scaled_height;
+ 
+@@ -1485,14 +1485,11 @@ R_DeleteTextures
+ ===============
+ */
+ void R_DeleteTextures( void ) {
++	image_t *img;
+ 	int i;
+ 
+-	if ( tr.numImages == 0 ) {
+-		return;
+-	}
+-
+ 	for ( i = 0; i < tr.numImages; i++ ) {
+-		image_t *img = tr.images[ i ];
++		img = tr.images[ i ];
+ 		qglDeleteTextures( 1, &img->texnum );
+ 	}
+ 
+diff --git a/code/renderer/tr_init.c b/code/renderer/tr_init.c
+index 3f0710d2..17393f2e 100644
+--- a/code/renderer/tr_init.c
++++ b/code/renderer/tr_init.c
+@@ -1909,10 +1909,10 @@ static void RE_Shutdown( refShutdownCode_t code ) {
+ 	ri.Cmd_RemoveCommand( "gfxinfo" );
+ 	ri.Cmd_RemoveCommand( "shaderstate" );
+ 
+-	//if ( tr.registered ) {
++	if ( tr.registered ) {
+ 		//R_IssuePendingRenderCommands();
+ 		R_DeleteTextures();
+-	//}
++	}
+ 
+ 	R_DoneFreeType();
+ 
+diff --git a/code/renderer/tr_local.h b/code/renderer/tr_local.h
+index 5e713dbb..777ad8a2 100644
+--- a/code/renderer/tr_local.h
++++ b/code/renderer/tr_local.h
+@@ -311,8 +311,7 @@ typedef struct {
+ 	int				videoMapHandle;
+ 	int				lightmap;				// LIGHTMAP_INDEX_NONE, LIGHTMAP_INDEX_SHADER, LIGHTMAP_INDEX_OFFSET
+ 	qboolean		isVideoMap;
+-	unsigned int 	isScreenMap : 1;
+-	unsigned int 	dlight : 1;
++	qboolean		isScreenMap;
+ } textureBundle_t;
+ 
+ #define NUM_TEXTURE_BUNDLES 2
+diff --git a/code/renderer/tr_shader.c b/code/renderer/tr_shader.c
+index 62f07a2d..d07fac33 100644
+--- a/code/renderer/tr_shader.c
++++ b/code/renderer/tr_shader.c
+@@ -667,7 +667,7 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
+ 				flags = IMGFLAG_NONE;
+ #ifdef USE_FBO
+ 				if ( fboEnabled ) {
+-					stage->bundle[0].isScreenMap = 1;
++					stage->bundle[0].isScreenMap = qtrue;
+ 					shader.hasScreenMap = qtrue;
+ 					tr.needScreenMap = qtrue;
+ 				}
+@@ -1128,10 +1128,7 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
+ 		if ( blendSrcBits == GLS_SRCBLEND_SRC_ALPHA && blendDstBits == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA /*&& stage->rgbGen == CGEN_VERTEX*/ ) {
+ 			if ( stage->alphaGen != AGEN_SKIP ) {
+ 				// q3wcp18 @ "textures/ctf_unified/floor_decal_blue" : AGEN_VERTEX, CGEN_VERTEX
+-				// check for grates on tscabdm3
+-				if ( atestBits == 0 ) {
+-					depthMaskBits &= ~GLS_DEPTHMASK_TRUE;
+-				}
++				depthMaskBits &= ~GLS_DEPTHMASK_TRUE;
+ 			} else {
+ 				// skip for q3wcp14 jumppads and similar
+ 				// q3wcp14 @ "textures/ctf_unified/bounce_blue" : AGEN_SKIP, CGEN_IDENTITY
+@@ -1710,17 +1707,9 @@ static void FinishStage( shaderStage_t *stage )
+ 		// offset lightmap coordinates
+ 		if ( bundle->lightmap >= LIGHTMAP_INDEX_OFFSET ) {
+ 			if ( bundle->tcGen == TCGEN_LIGHTMAP ) {
+-				texModInfo_t *tmi = &bundle->texMods[bundle->numTexMods];
++				texModInfo_t * tmi = &bundle->texMods[bundle->numTexMods];
+ 				float x, y;
+ 				const int lightmapIndex = R_GetLightmapCoords( bundle->lightmap - LIGHTMAP_INDEX_OFFSET, &x, &y );
+-				// rescale tcMod transform
+-				for ( n = 0; n < bundle->numTexMods; n++ ) {
+-					tmi = &bundle->texMods[n];
+-					if ( tmi->type == TMOD_TRANSFORM ) {
+-						tmi->translate[0] *= tr.lightmapScale[0];
+-						tmi->translate[1] *= tr.lightmapScale[1];
+-					}
+-				}
+ 				bundle->image[0] = tr.lightmaps[lightmapIndex];
+ 				tmi->type = TMOD_OFFSET;
+ 				tmi->offset[0] = x - tr.lightmapOffset[0];
+@@ -1729,6 +1718,7 @@ static void FinishStage( shaderStage_t *stage )
+ 			}
+ 			continue;
+ 		}
++
+ 		// adjust texture coordinates to map on proper lightmap
+ 		if ( bundle->lightmap == LIGHTMAP_INDEX_SHADER ) {
+ 			if ( bundle->tcGen != TCGEN_LIGHTMAP ) {
+@@ -2260,158 +2250,95 @@ static qboolean CollapseMultitexture( shaderStage_t *st0, shaderStage_t *st1, in
+ 
+ #ifdef USE_PMLIGHT
+ 
+-static int tcmodWeight2( const shaderStage_t* st )
++static int tcmodWeight( const textureBundle_t *bundle )
+ {
+-	int i;
++	if ( bundle->numTexMods == 0 )
++		return 1;
+ 
+-	for ( i = 0; i < st->bundle[0].numTexMods; i++ ) {
+-		switch ( st->bundle[0].texMods[i].type ) {
+-		case TMOD_NONE:
+-		case TMOD_SCALE:
+-		case TMOD_TRANSFORM:
+-		case TMOD_OFFSET:
+-		case TMOD_SCALE_OFFSET:
+-		case TMOD_OFFSET_SCALE:
+-			break;
+-		default:
+-			return 0;
+-		}
+-	}
+-	return 1;
++	return 0;
+ }
+ 
+ 
+-/*
+-====================
+-FindLightingStage
+-
+-Find proper stage for dlight pass.
+-Perform it before multitexture collapse for simplification and to preserve all info (e.g. isDetail)
+-
+-Key complex shaders to validate/check:
+-[q3dm0]
+-* textures/base_wall/comp3 -> stage #3
+-[q3dm17]
+-* textures/sfx/diamond2cjumppad -> stage #0
+-* textures/sfx/launchpad_diamond -> stage #1
+-* textures/base_floor/diamond2c_ow -> stage #1
+-[q3wcp17]
+-* textures/scanctf2/bounce_white -> stage #0
+-[q3wcp18]
+-* textures/ctf_unified/weapfloor_* -> stage #1
+-[q3w8]
+-* textures/ctf_cas_v/bounce_red_v -> stage #0
+-[lun3dm5]
+-* textures/lun3dm5/c_crete6gs -> stage #1
+-* textures/lun3dm5/c_crete6j -> stage #4
+-[pom]
+-* textures/sockter/ter_mossgravel -> stage #1
+-====================
+-*/
+-static void FindLightingStage( const int stage ) {
+-	int i, selected, lightmap;
++static const textureBundle_t *lightingBundle( int stageIndex, const textureBundle_t *selected ) {
++	const shaderStage_t *stage = &stages[ stageIndex ];
++	int i, numTexBundles;
+ 
+-	shader.lightingBundle = 0;
+-	shader.lightingStage = -1;
+-
+-	if ( shader.isSky || (shader.surfaceFlags & (SURF_NODLIGHT | SURF_SKY)) /* || shader.sort == SS_ENVIRONMENT || shader.sort >= SS_FOG */ ) {
+-		return;
+-	}
++	if ( stage->mtEnv )
++		numTexBundles = 2;
++	else
++		numTexBundles = 1;
+ 
+-	selected = -2;
+-	lightmap = -2;
+-	for ( i = 0; i < stage; i++ ) {
+-		const shaderStage_t *st = &stages[i];
+-		const textureBundle_t *b = &st->bundle[0];
+-		if ( !st->active ) {
+-			break;
++	for ( i = 0; i < numTexBundles; i++ ) {
++		const textureBundle_t *bundle = &stage->bundle[ i ];
++		if ( bundle->lightmap != LIGHTMAP_INDEX_NONE ) {
++			continue;
+ 		}
+-		if ( b->lightmap != LIGHTMAP_INDEX_NONE ) {
+-			// 1. prefer stages near lightmap
+-			if ( selected == i - 1 ) {
+-				break;
+-			}
+-			lightmap = i;
++		if ( bundle->image[0] == tr.whiteImage ) {
+ 			continue;
+ 		}
+-		if ( b->image[0] == tr.whiteImage || b->tcGen != TCGEN_TEXTURE ) {
++		if ( bundle->tcGen != TCGEN_TEXTURE ) {
+ 			continue;
+ 		}
+-		if ( selected >= 0 ) {
+-			// 2. skip detail textures
+-			if ( st->isDetail ) {
++		if ( selected ) {
++			if ( stage->rgbGen == CGEN_IDENTITY && ( stage->stateBits & GLS_BLEND_BITS ) == ( GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO ) ) {
++				// fix for q3wcp17' textures/scanctf2/bounce_white and others
+ 				continue;
+ 			}
+-			// 3. prefer non-animated stages
+-			if ( stages[selected].bundle[0].numImageAnimations < b->numImageAnimations ) {
++			if ( tcmodWeight( selected ) > tcmodWeight( bundle ) ) {
+ 				continue;
+ 			}
+-			// 4. prefer static tcgens
+-			if ( tcmodWeight2( &stages[selected] ) > tcmodWeight2( st ) ) {
+-				continue;
+-			}
+-			// 5. special case for lun3dm5 crete6gs stage #2
+-			if ( ( st->stateBits & GLS_BLEND_BITS ) == ( GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_SRC_COLOR ) ) {
+-				if ( ( stages[selected].stateBits & GLS_BLEND_BITS ) == ( GLS_SRCBLEND_ONE | GLS_DSTBLEND_SRC_ALPHA ) ) {
+-					continue;
+-				}
+-			}
+-			// 6. special case for q3w8 bounce_red_v/bounce_blue_v
+-			if ( ( st->stateBits == ( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE ) ) ) {
+-				if ( stages[selected].stateBits == ( GLS_DEPTHMASK_TRUE | GLS_ATEST_GE_80 ) ) {
+-					break;
+-				}
+-			}
+-		}
+-		selected = i;
+-		// 1. prefer stages near lightmap
+-		if ( i == lightmap + 1 ) {
+-			break;
+ 		}
++		shader.lightingStage = stageIndex;
++		shader.lightingBundle = i;
++		selected = bundle;
+ 	}
+ 
+-	if ( selected >= 0 ) {
+-		shader.lightingStage = selected;
+-		stages[selected].bundle[0].dlight = 1;
+-	}
++	return selected;
+ }
+ 
+ 
+ /*
+ ====================
+-FindLightingStage
++FindLightingStages
+ 
+-Set shader.lightingStage and shader.lightingBundle depending from marked .dlight field
++Find proper stage for dlight pass
+ ====================
+ */
+-static void FindLightingBundle( void )
++static void FindLightingStages( void )
+ {
+-	int i, n;
+-
+-	if ( shader.lightingStage < 0 ) {
+-		return;
+-	}
++	const shaderStage_t *st;
++	const textureBundle_t *bundle;
++	int i;
+ 
+ 	shader.lightingStage = -1;
++	shader.lightingBundle = 0;
+ 
+-	if ( /*shader.isSky || (shader.surfaceFlags & (SURF_SKY)) || */ shader.sort == SS_ENVIRONMENT || shader.sort >= SS_FOG ) {
++	if ( !qglGenProgramsARB )
+ 		return;
+-	}
+ 
++	if ( shader.isSky || ( shader.surfaceFlags & (SURF_NODLIGHT | SURF_SKY) ) || shader.sort == SS_ENVIRONMENT || shader.sort >= SS_FOG )
++		return;
++
++	bundle = NULL;
+ 	for ( i = 0; i < shader.numUnfoggedPasses; i++ ) {
+-		const shaderStage_t* st = &stages[i];
+-		if ( !st->active ) {
++		st = &stages[ i ];
++		if ( !st->active )
+ 			break;
+-		}
+-		for ( n = 0; n < 2; n++ ) {
+-			if ( st->bundle[n].dlight ) {
+-				shader.lightingStage = i;
+-				shader.lightingBundle = n;
++		if ( st->isDetail && shader.lightingStage >= 0 )
++			continue;
++		if ( ( st->stateBits & GLS_BLEND_BITS ) == ( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE ) ) {
++			if ( bundle && bundle->numTexMods ) {
++				// already selected bundle has somewhat non-static tcgen
++				// so we may accept this stage
++				// this fixes jumppads on lun3dm5
++			} else {
++				continue;
+ 			}
+ 		}
++		bundle = lightingBundle( i, bundle );
+ 	}
+ }
+-#endif // USE_PMLIGHT
++#endif
+ 
+ 
+ /*
+@@ -2969,10 +2896,6 @@ static shader_t *FinishShader( void ) {
+ 		stages[i].tessFlags = TESS_ST0;
+ 	}
+ 
+-#ifdef USE_PMLIGHT
+-	FindLightingStage( stage );
+-#endif
+-
+ 	//
+ 	// look for multitexture potential
+ 	//
+@@ -2985,7 +2908,7 @@ static shader_t *FinishShader( void ) {
+ 	}
+ 
+ 	if ( shader.lightmapIndex >= 0 && !hasLightmapStage ) {
+-		if ( vertexLightmap ) {
++		if (vertexLightmap) {
+ 			ri.Printf( PRINT_DEVELOPER, "WARNING: shader '%s' has VERTEX forced lightmap!\n", shader.name );
+ 		} else {
+ 			ri.Printf( PRINT_DEVELOPER, "WARNING: shader '%s' has lightmap but no lightmap stage!\n", shader.name );
+@@ -3009,7 +2932,7 @@ static shader_t *FinishShader( void ) {
+ 	}
+ 
+ #ifdef USE_PMLIGHT
+-	FindLightingBundle();
++	FindLightingStages();
+ #endif
+ 
+ 	// make sure that amplitude for TMOD_STRETCH is not zero
+diff --git a/code/renderervk/tr_image.c b/code/renderervk/tr_image.c
+index d06c0f37..0d1c2696 100644
+--- a/code/renderervk/tr_image.c
++++ b/code/renderervk/tr_image.c
+@@ -100,16 +100,8 @@ void GL_TextureMode( const char *string ) {
+ 	gl_filter_max = mode->maximize;
+ 
+ #ifdef USE_VULKAN
+-	if ( gl_filter_min == vk.samplers.filter_min && gl_filter_max == vk.samplers.filter_max ) {
+-		return;
+-	}
+ 	vk_wait_idle();
+-	vk_destroy_samplers();
+-
+-	vk.samplers.filter_min = gl_filter_min;
+-	vk.samplers.filter_max = gl_filter_max;
+-	vk_update_attachment_descriptors();
+-	for ( i = 0; i < tr.numImages; i++ ) {
++	for ( i = 0 ; i < tr.numImages ; i++ ) {
+ 		img = tr.images[i];
+ 		if ( img->flags & IMGFLAG_MIPMAP ) {
+ 			vk_update_descriptor_set( img, qtrue );
+@@ -586,8 +578,8 @@ typedef struct {
+ 
+ static void generate_image_upload_data( image_t *image, byte *data, Image_Upload_Data *upload_data ) {
+ 	
+-	qboolean mipmap = (image->flags & IMGFLAG_MIPMAP) ? qtrue : qfalse;
+-	qboolean picmip = (image->flags & IMGFLAG_PICMIP) ? qtrue : qfalse;
++	qboolean mipmap = image->flags & IMGFLAG_MIPMAP;
++	qboolean picmip = image->flags & IMGFLAG_PICMIP;
+ 	byte* resampled_buffer = NULL;
+ 	int scaled_width, scaled_height;
+ 	int width = image->width;
+@@ -1763,24 +1755,22 @@ R_DeleteTextures
+ ===============
+ */
+ void R_DeleteTextures( void ) {
+-	int i;
+ 
+-	if ( tr.numImages == 0 ) {
+-		return;
+-	}
++	image_t *img;
++	int i;
+ 
+ #ifdef USE_VULKAN
+ 	vk_wait_idle();
+ 
+ 	for ( i = 0; i < tr.numImages; i++ ) {
+-		image_t *img = tr.images[ i ];
++		img = tr.images[ i ];
+ 		vk_destroy_image_resources( &img->handle, &img->view );
+ 
+ 		// img->descriptor will be released with pool reset
+ 	}
+ #else
+ 	for ( i = 0; i < tr.numImages; i++ ) {
+-		image_t *img = tr.images[ i ];
++		img = tr.images[ i ];
+ 		qglDeleteTextures( 1, &img->texnum );
+ 	}
+ 
+diff --git a/code/renderervk/tr_init.c b/code/renderervk/tr_init.c
+index 9115d214..f817cd10 100644
+--- a/code/renderervk/tr_init.c
++++ b/code/renderervk/tr_init.c
+@@ -1949,10 +1949,10 @@ static void RE_Shutdown( refShutdownCode_t code ) {
+ 	ri.Cmd_RemoveCommand( "vkinfo" );
+ #endif
+ 
+-	//if ( tr.registered ) {
++	if ( tr.registered ) {
+ 		//R_IssuePendingRenderCommands();
+ 		R_DeleteTextures();
+-	//}
++	}
+ 
+ #ifdef USE_VULKAN
+ 	vk_release_resources();
+diff --git a/code/renderervk/tr_local.h b/code/renderervk/tr_local.h
+index 0b5786b2..a82aa862 100644
+--- a/code/renderervk/tr_local.h
++++ b/code/renderervk/tr_local.h
+@@ -362,8 +362,7 @@ typedef struct {
+ 	int				videoMapHandle;
+ 	int				lightmap;				// LIGHTMAP_INDEX_NONE, LIGHTMAP_INDEX_SHADER, LIGHTMAP_INDEX_OFFSET
+ 	qboolean		isVideoMap;
+-	unsigned int 	isScreenMap : 1;
+-	unsigned int 	dlight : 1;
++	qboolean		isScreenMap;
+ } textureBundle_t;
+ 
+ #ifdef USE_VULKAN
+diff --git a/code/renderervk/tr_shader.c b/code/renderervk/tr_shader.c
+index 9fe11e85..43598bb2 100644
+--- a/code/renderervk/tr_shader.c
++++ b/code/renderervk/tr_shader.c
+@@ -1125,10 +1125,7 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
+ 		if ( blendSrcBits == GLS_SRCBLEND_SRC_ALPHA && blendDstBits == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA /*&& stage->rgbGen == CGEN_VERTEX*/ ) {
+ 			if ( stage->bundle[0].alphaGen != AGEN_SKIP ) {
+ 				// q3wcp18 @ "textures/ctf_unified/floor_decal_blue" : AGEN_VERTEX, CGEN_VERTEX
+-				// check for grates on tscabdm3
+-				if ( atestBits == 0 ) {
+-					depthMaskBits &= ~GLS_DEPTHMASK_TRUE;
+-				}
++				depthMaskBits &= ~GLS_DEPTHMASK_TRUE;
+ 			} else {
+ 				// skip for q3wcp14 jumppads and similar
+ 				// q3wcp14 @ "textures/ctf_unified/bounce_blue" : AGEN_SKIP, CGEN_IDENTITY
+@@ -1710,14 +1707,6 @@ static void FinishStage( shaderStage_t *stage )
+ 				texModInfo_t *tmi = &bundle->texMods[bundle->numTexMods];
+ 				float x, y;
+ 				const int lightmapIndex = R_GetLightmapCoords( bundle->lightmap - LIGHTMAP_INDEX_OFFSET, &x, &y );
+-				// rescale tcMod transform
+-				for ( n = 0; n < bundle->numTexMods; n++ ) {
+-					tmi = &bundle->texMods[n];
+-					if ( tmi->type == TMOD_TRANSFORM ) {
+-						tmi->translate[0] *= tr.lightmapScale[0];
+-						tmi->translate[1] *= tr.lightmapScale[1];
+-					}
+-				}
+ 				bundle->image[0] = tr.lightmaps[lightmapIndex];
+ 				tmi->type = TMOD_OFFSET;
+ 				tmi->offset[0] = x - tr.lightmapOffset[0];
+@@ -2352,158 +2341,104 @@ static int CollapseMultitexture( unsigned int st0bits, shaderStage_t *st0, shade
+ 
+ #ifdef USE_PMLIGHT
+ 
+-static int tcmodWeight2( const shaderStage_t* st )
++static int tcmodWeight( const textureBundle_t *bundle )
+ {
+-	int i;
++	if ( bundle->numTexMods == 0 )
++		return 1;
+ 
+-	for ( i = 0; i < st->bundle[0].numTexMods; i++ ) {
+-		switch ( st->bundle[0].texMods[i].type ) {
+-		case TMOD_NONE:
+-		case TMOD_SCALE:
+-		case TMOD_TRANSFORM:
+-		case TMOD_OFFSET:
+-		case TMOD_SCALE_OFFSET:
+-		case TMOD_OFFSET_SCALE:
+-			break;
+-		default:
+-			return 0;
+-		}
+-	}
+-	return 1;
++	return 0;
+ }
+ 
++#if 0
++static int rgbWeight( const textureBundle_t *bundle ) {
+ 
+-/*
+-====================
+-FindLightingStage
+-
+-Find proper stage for dlight pass.
+-Perform it before multitexture collapse for simplification and to preserve all info (e.g. isDetail)
+-
+-Key complex shaders to validate/check:
+-[q3dm0]
+-* textures/base_wall/comp3 -> stage #3
+-[q3dm17]
+-* textures/sfx/diamond2cjumppad -> stage #0
+-* textures/sfx/launchpad_diamond -> stage #1
+-* textures/base_floor/diamond2c_ow -> stage #1
+-[q3wcp17]
+-* textures/scanctf2/bounce_white -> stage #0
+-[q3wcp18]
+-* textures/ctf_unified/weapfloor_* -> stage #1
+-[q3w8]
+-* textures/ctf_cas_v/bounce_red_v -> stage #0
+-[lun3dm5]
+-* textures/lun3dm5/c_crete6gs -> stage #1
+-* textures/lun3dm5/c_crete6j -> stage #4
+-[pom]
+-* textures/sockter/ter_mossgravel -> stage #1
+-====================
+-*/
+-static void FindLightingStage( const int stage ) {
+-	int i, selected, lightmap;
+-
+-	shader.lightingBundle = 0;
+-	shader.lightingStage = -1;
+-
+-	if ( shader.isSky || (shader.surfaceFlags & (SURF_NODLIGHT | SURF_SKY)) /* || shader.sort == SS_ENVIRONMENT || shader.sort >= SS_FOG */ ) {
+-		return;
++	switch ( bundle->rgbGen ) {
++		case CGEN_EXACT_VERTEX: return 3;
++		case CGEN_VERTEX: return 3;
++		case CGEN_ENTITY: return 2;
++		case CGEN_ONE_MINUS_ENTITY: return 2;
++		case CGEN_CONST: return 1;
++		default: return 0;
+ 	}
++}
++#endif
+ 
+-	selected = -2;
+-	lightmap = -2;
+-	for ( i = 0; i < stage; i++ ) {
+-		const shaderStage_t *st = &stages[i];
+-		const textureBundle_t *b = &st->bundle[0];
+-		if ( !st->active ) {
+-			break;
++static const textureBundle_t *lightingBundle( int stageIndex, const textureBundle_t *selected ) {
++	const shaderStage_t *stage = &stages[ stageIndex ];
++	int i;
++
++	for ( i = 0; i < stage->numTexBundles; i++ ) {
++		const textureBundle_t *bundle = &stage->bundle[ i ];
++		if ( bundle->lightmap != LIGHTMAP_INDEX_NONE ) {
++			continue;
+ 		}
+-		if ( b->lightmap != LIGHTMAP_INDEX_NONE ) {
+-			// 1. prefer stages near lightmap
+-			if ( selected == i - 1 ) {
+-				break;
+-			}
+-			lightmap = i;
++		if ( bundle->image[0] == tr.whiteImage ) {
+ 			continue;
+ 		}
+-		if ( b->image[0] == tr.whiteImage || b->tcGen != TCGEN_TEXTURE ) {
++		if ( bundle->tcGen != TCGEN_TEXTURE ) {
+ 			continue;
+ 		}
+-		if ( selected >= 0 ) {
+-			// 2. skip detail textures
+-			if ( st->isDetail ) {
++		if ( selected ) {
++			if ( bundle->rgbGen == CGEN_IDENTITY && ( stage->stateBits & GLS_BLEND_BITS ) == ( GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO ) ) {
++				// fix for q3wcp17' textures/scanctf2/bounce_white and others
+ 				continue;
+ 			}
+-			// 3. prefer non-animated stages
+-			if ( stages[selected].bundle[0].numImageAnimations < b->numImageAnimations ) {
++			if ( tcmodWeight( selected ) > tcmodWeight( bundle ) ) {
+ 				continue;
+ 			}
+-			// 4. prefer static tcgens
+-			if ( tcmodWeight2( &stages[selected] ) > tcmodWeight2( st ) ) {
+-				continue;
+-			}
+-			// 5. special case for lun3dm5 crete6gs stage #2
+-			if ( ( st->stateBits & GLS_BLEND_BITS ) == ( GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_SRC_COLOR ) ) {
+-				if ( ( stages[selected].stateBits & GLS_BLEND_BITS ) == ( GLS_SRCBLEND_ONE | GLS_DSTBLEND_SRC_ALPHA ) ) {
+-					continue;
+-				}
+-			}
+-			// 6. special case for q3w8 bounce_red_v/bounce_blue_v
+-			if ( ( st->stateBits == ( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE ) ) ) {
+-				if ( stages[selected].stateBits == ( GLS_DEPTHMASK_TRUE | GLS_ATEST_GE_80 ) ) {
+-					break;
+-				}
+-			}
+-		}
+-		selected = i;
+-		// 1. prefer stages near lightmap
+-		if ( i == lightmap + 1 ) {
+-			break;
++			// commented because causes regression in q3dm1' Mouth area
++			//if ( rgbWeight( selected ) > rgbWeight( bundle ) ) {
++				//continue;
++			//}
+ 		}
++		shader.lightingStage = stageIndex;
++		shader.lightingBundle = i;
++		selected = bundle;
+ 	}
+ 
+-	if ( selected >= 0 ) {
+-		shader.lightingStage = selected;
+-		stages[selected].bundle[0].dlight = 1;
+-	}
++	return selected;
+ }
+ 
+ 
+ /*
+ ====================
+-FindLightingStage
++FindLightingStages
+ 
+-Set shader.lightingStage and shader.lightingBundle depending from marked .dlight field
++Find proper stage for dlight pass
+ ====================
+ */
+-static void FindLightingBundle( void )
++static void FindLightingStages( void )
+ {
+-	int i, n;
+-
+-	if ( shader.lightingStage < 0 ) {
+-		return;
+-	}
++	const shaderStage_t *st;
++	const textureBundle_t *bundle;
++	int i;
+ 
+ 	shader.lightingStage = -1;
++	shader.lightingBundle = 0;
+ 
+-	if ( /*shader.isSky || (shader.surfaceFlags & (SURF_SKY)) || */ shader.sort == SS_ENVIRONMENT || shader.sort >= SS_FOG ) {
++	if ( shader.isSky || ( shader.surfaceFlags & (SURF_NODLIGHT | SURF_SKY) ) || shader.sort == SS_ENVIRONMENT || shader.sort >= SS_FOG )
+ 		return;
+-	}
+ 
++	bundle = NULL;
+ 	for ( i = 0; i < shader.numUnfoggedPasses; i++ ) {
+-		const shaderStage_t* st = &stages[i];
+-		if ( !st->active ) {
++		st = &stages[ i ];
++		if ( !st->active )
+ 			break;
+-		}
+-		for ( n = 0; n < st->numTexBundles; n++ ) {
+-			if ( st->bundle[n].dlight ) {
+-				shader.lightingStage = i;
+-				shader.lightingBundle = n;
++		if ( st->isDetail && shader.lightingStage >= 0 )
++			continue;
++		if ( ( st->stateBits & GLS_BLEND_BITS ) == ( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE ) ) {
++			if ( bundle && bundle->numTexMods ) {
++				// already selected bundle has somewhat non-static tcgen
++				// so we may accept this stage
++				// this fixes jumppads on lun3dm5
++			} else {
++				continue;
+ 			}
+ 		}
++		bundle = lightingBundle( i, bundle );
+ 	}
+ }
+-#endif // USE_PMLIGHT
++#endif
+ 
+ 
+ /*
+@@ -3238,10 +3173,6 @@ static shader_t *FinishShader( void ) {
+ 		stages[ i ].numTexBundles = 1;
+ 	}
+ 
+-#ifdef USE_PMLIGHT
+-	FindLightingStage( stage );
+-#endif
+-
+ 	//
+ 	// look for multitexture potential
+ 	//
+@@ -3252,7 +3183,7 @@ static shader_t *FinishShader( void ) {
+ 	}
+ 
+ 	if ( shader.lightmapIndex >= 0 && !hasLightmapStage ) {
+-		if ( vertexLightmap ) {
++		if (vertexLightmap) {
+ 			ri.Printf( PRINT_DEVELOPER, "WARNING: shader '%s' has VERTEX forced lightmap!\n", shader.name );
+ 		} else {
+ 			ri.Printf( PRINT_DEVELOPER, "WARNING: shader '%s' has lightmap but no lightmap stage!\n", shader.name );
+@@ -3281,7 +3212,7 @@ static shader_t *FinishShader( void ) {
+ 	if ( vk.maxBoundDescriptorSets >= 6 && !(shader.contentFlags & CONTENTS_FOG) && shader.fogPass != FP_NONE ) {
+ 		fogCollapse = qtrue;
+ 		if ( stage == 1 ) {
+-			// we can always fog-collapse single-stage shaders
++			// we can always fog-collapse signle-stage shaders
+ 		} else {
+ 			if ( tr.numFogs ) {
+ 				// check for (un)acceptable blend modes
+@@ -3577,7 +3508,7 @@ static shader_t *FinishShader( void ) {
+ #endif // USE_VULKAN
+ 
+ #ifdef USE_PMLIGHT
+-	FindLightingBundle();
++	FindLightingStages();
+ #endif
+ 
+ #if 1
+diff --git a/code/renderervk/vk.c b/code/renderervk/vk.c
+index dccca336..75598481 100644
+--- a/code/renderervk/vk.c
++++ b/code/renderervk/vk.c
+@@ -476,7 +476,7 @@ static void vk_set_object_name( uint64_t obj, const char *objName, VkDebugReport
+ }
+ 
+ 
+-static void vk_create_swapchain( VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkSurfaceFormatKHR surface_format, VkSwapchainKHR *swapchain, qboolean verbose ) {
++static void vk_create_swapchain( VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkSurfaceFormatKHR surface_format, VkSwapchainKHR *swapchain ) {
+ 	VkImageViewCreateInfo view;
+ 	VkSurfaceCapabilitiesKHR surface_caps;
+ 	VkExtent2D image_extent;
+@@ -518,23 +518,18 @@ static void vk_create_swapchain( VkPhysicalDevice physical_device, VkDevice devi
+ 	present_modes = (VkPresentModeKHR *) ri.Malloc( present_mode_count * sizeof( VkPresentModeKHR ) );
+ 	VK_CHECK(qvkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &present_mode_count, present_modes));
+ 
+-	if ( verbose ) {
+-		ri.Printf( PRINT_ALL, "...presentation modes:" );
+-	}
++	ri.Printf( PRINT_ALL, "...presentation modes:" );
+ 	for ( i = 0; i < present_mode_count; i++ ) {
+-		if ( verbose ) {
+-			ri.Printf( PRINT_ALL, " %s", pmode_to_str( present_modes[i] ) );
+-		}
++		ri.Printf( PRINT_ALL, " %s", pmode_to_str( present_modes[i] ) );
+ 		if ( present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR )
+ 			mailbox_supported = qtrue;
+ 		else if ( present_modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR )
+ 			immediate_supported = qtrue;
+-		else if ( present_modes[i] == VK_PRESENT_MODE_FIFO_RELAXED_KHR )
++		else if ( present_modes[i] ==  VK_PRESENT_MODE_FIFO_RELAXED_KHR )
+ 			fifo_relaxed_supported = qtrue;
++
+ 	}
+-	if ( verbose ) {
+-		ri.Printf( PRINT_ALL, "\n" );
+-	}
++	ri.Printf( PRINT_ALL, "\n" );
+ 
+ 	ri.Free( present_modes );
+ 
+@@ -572,9 +567,7 @@ static void vk_create_swapchain( VkPhysicalDevice physical_device, VkDevice devi
+ 		image_count = MIN( MIN( image_count, surface_caps.maxImageCount ), MAX_SWAPCHAIN_IMAGES );
+ 	}
+ 
+-	if ( verbose ) {
+-		ri.Printf( PRINT_ALL, "...selected presentation mode: %s, image count: %i\n", pmode_to_str( present_mode ), image_count );
+-	}
++	ri.Printf( PRINT_ALL, "...selected presentation mode: %s, image count: %i\n", pmode_to_str( present_mode ), image_count );
+ 
+ 	// create swap chain
+ 	desc.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+@@ -607,6 +600,7 @@ static void vk_create_swapchain( VkPhysicalDevice physical_device, VkDevice devi
+ 	VK_CHECK( qvkGetSwapchainImagesKHR( vk.device, vk.swapchain, &vk.swapchain_image_count, vk.swapchain_images ) );
+ 
+ 	for ( i = 0; i < vk.swapchain_image_count; i++ ) {
++
+ 		view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+ 		view.pNext = NULL;
+ 		view.flags = 0;
+@@ -629,15 +623,6 @@ static void vk_create_swapchain( VkPhysicalDevice physical_device, VkDevice devi
+ 		SET_OBJECT_NAME( vk.swapchain_image_views[i], va( "swapchain image %i", i ), VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT );
+ 	}
+ 
+-	for ( i = 0; i < vk.swapchain_image_count; i++ ) {
+-		VkSemaphoreCreateInfo s;
+-		s.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+-		s.pNext = NULL;
+-		s.flags = 0;
+-		VK_CHECK( qvkCreateSemaphore( vk.device, &s, NULL, &vk.swapchain_rendering_finished[i] ) );
+-		SET_OBJECT_NAME( vk.swapchain_rendering_finished[i], va( "swapchain_rendering_finished semaphore %i", i ), VK_DEBUG_REPORT_OBJECT_TYPE_SEMAPHORE_EXT );
+-	}
+-
+ 	if ( vk.initSwapchainLayout != VK_IMAGE_LAYOUT_UNDEFINED ) {
+ 		VkCommandBuffer command_buffer = begin_command_buffer();
+ 
+@@ -1080,62 +1065,55 @@ static void allocate_and_bind_image_memory(VkImage image) {
+ 
+ static void vk_clean_staging_buffer( void )
+ {
+-	if ( vk.staging_buffer.handle != VK_NULL_HANDLE ) {
+-		qvkDestroyBuffer( vk.device, vk.staging_buffer.handle, NULL );
+-		vk.staging_buffer.handle = VK_NULL_HANDLE;
++	if ( vk_world.staging_buffer != VK_NULL_HANDLE ) {
++		qvkDestroyBuffer( vk.device, vk_world.staging_buffer, NULL );
++		vk_world.staging_buffer = VK_NULL_HANDLE;
+ 	}
+ 
+-	//if ( vk.staging_buffer.ptr != NULL ) 
+-	//	qvkUnmapMemory( vk.device, vk.staging_buffer.memory ) {
+-	//	vk.staging_buffer.ptr = NULL;
+-	//}
+-
+-	if ( vk.staging_buffer.memory != VK_NULL_HANDLE ) {
+-		qvkFreeMemory( vk.device, vk.staging_buffer.memory, NULL );
+-		vk.staging_buffer.memory = VK_NULL_HANDLE;
++	if ( vk_world.staging_buffer_memory != VK_NULL_HANDLE ) {
++		qvkFreeMemory( vk.device, vk_world.staging_buffer_memory, NULL );
++		vk_world.staging_buffer_memory = VK_NULL_HANDLE;
+ 	}
+ 
+-	vk.staging_buffer.ptr = NULL;
+-	vk.staging_buffer.size = 0;
++	vk_world.staging_buffer_ptr = NULL;
++	vk_world.staging_buffer_size = 0;
+ #ifdef USE_UPLOAD_QUEUE
+-	vk.staging_buffer.offset = 0;
++	vk_world.staging_buffer_offset = 0;
+ #endif
+ }
+ 
+ 
+ #ifdef USE_UPLOAD_QUEUE
+-static qboolean vk_wait_staging_buffer( void )
++static void vk_wait_staging_buffer( void )
+ {
+-	if ( vk.aux_fence_wait ) {
+-		VkResult res = qvkWaitForFences( vk.device, 1, &vk.aux_fence, VK_TRUE, 5 * 1000000000ULL );
++	if ( vk.aux_fence_wait )
++	{
++		VkResult res;
++		res = qvkWaitForFences( vk.device, 1, &vk.aux_fence, VK_TRUE, 5 * 1000000000ULL );
+ 		if ( res != VK_SUCCESS ) {
+ 			ri.Error( ERR_FATAL, "vkWaitForFences() failed with %s at %s", vk_result_string( res ), __func__ );
+ 		}
+ 		qvkResetFences( vk.device, 1, &vk.aux_fence );
+-		VK_CHECK( qvkResetCommandBuffer( vk.staging_command_buffer, 0 ) );
+-		vk.staging_buffer.offset = 0; // FIXME: is this correct?
+ 		vk.aux_fence_wait = qfalse;
+-		return qtrue;
+-	} else {
+-		return qfalse;
++		VK_CHECK( qvkResetCommandBuffer( vk.staging_command_buffer, 0 ) );
+ 	}
+ }
+ 
+ 
+-static void vk_flush_staging_buffer( qboolean final )
++static void vk_submit_staging_buffer( qboolean final )
+ {
+ 	const VkPipelineStageFlags wait_dst_stage_mask = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+ 	VkSemaphore waits;
+ 	VkSubmitInfo submit_info;
+ 	VkResult res;
+ 
+-	if ( vk.staging_buffer.offset == 0 ) {
++	if ( vk_world.staging_buffer_offset == 0 ) {
+ 		return;
+ 	}
+ 
+ 	//ri.Printf( PRINT_WARNING, S_COLOR_CYAN ">>> flush %i bytes (final=%i)<<<\n", (int)vk_world.staging_buffer_offset, final );
+ 
+-	vk.staging_buffer.offset = 0;
++	vk_world.staging_buffer_offset = 0;
+ 
+ 	VK_CHECK( qvkEndCommandBuffer( vk.staging_command_buffer ) );
+ 
+@@ -1184,7 +1162,7 @@ static void vk_flush_staging_buffer( qboolean final )
+ #endif // USE_UPLOAD_QUEUE
+ 
+ 
+-static void vk_alloc_staging_buffer( VkDeviceSize size )
++static void ensure_staging_buffer_allocation( VkDeviceSize size )
+ {
+ 	VkBufferCreateInfo buffer_desc;
+ 	VkMemoryRequirements memory_requirements;
+@@ -1192,22 +1170,37 @@ static void vk_alloc_staging_buffer( VkDeviceSize size )
+ 	uint32_t memory_type;
+ 	void *data;
+ 
++#ifdef USE_UPLOAD_QUEUE
++	if ( vk_world.staging_buffer_size - vk_world.staging_buffer_offset >= size ) {
++		return;
++	}
++
++	vk_submit_staging_buffer( qfalse );
++
++	if ( vk_world.staging_buffer_size /* - vk_world.staging_buffer_offset */ >= size ) {
++		return;
++	}
++#else
++	if ( vk_world.staging_buffer_size >= size ) {
++		return;
++	}
++#endif
+ 	vk_clean_staging_buffer();
+ 
+-	vk.staging_buffer.size = MAX( size, STAGING_BUFFER_SIZE );
+-	vk.staging_buffer.size = PAD( vk.staging_buffer.size, 1024 * 1024 );
++	vk_world.staging_buffer_size = MAX( size, STAGING_BUFFER_SIZE );
++	vk_world.staging_buffer_size = PAD( vk_world.staging_buffer_size, 1024 * 1024 );
+ 
+ 	buffer_desc.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+ 	buffer_desc.pNext = NULL;
+ 	buffer_desc.flags = 0;
+-	buffer_desc.size = vk.staging_buffer.size;
++	buffer_desc.size = vk_world.staging_buffer_size;
+ 	buffer_desc.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+ 	buffer_desc.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+ 	buffer_desc.queueFamilyIndexCount = 0;
+ 	buffer_desc.pQueueFamilyIndices = NULL;
+-	VK_CHECK(qvkCreateBuffer(vk.device, &buffer_desc, NULL, &vk.staging_buffer.handle));
++	VK_CHECK(qvkCreateBuffer(vk.device, &buffer_desc, NULL, &vk_world.staging_buffer));
+ 
+-	qvkGetBufferMemoryRequirements( vk.device, vk.staging_buffer.handle, &memory_requirements );
++	qvkGetBufferMemoryRequirements( vk.device, vk_world.staging_buffer, &memory_requirements );
+ 
+ 	memory_type = find_memory_type( memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
+ 
+@@ -1216,16 +1209,16 @@ static void vk_alloc_staging_buffer( VkDeviceSize size )
+ 	alloc_info.allocationSize = memory_requirements.size;
+ 	alloc_info.memoryTypeIndex = memory_type;
+ 
+-	VK_CHECK(qvkAllocateMemory(vk.device, &alloc_info, NULL, &vk.staging_buffer.memory));
+-	VK_CHECK(qvkBindBufferMemory(vk.device, vk.staging_buffer.handle, vk.staging_buffer.memory, 0));
++	VK_CHECK(qvkAllocateMemory(vk.device, &alloc_info, NULL, &vk_world.staging_buffer_memory));
++	VK_CHECK(qvkBindBufferMemory(vk.device, vk_world.staging_buffer, vk_world.staging_buffer_memory, 0));
+ 
+-	VK_CHECK(qvkMapMemory(vk.device, vk.staging_buffer.memory, 0, VK_WHOLE_SIZE, 0, &data));
+-	vk.staging_buffer.ptr = (byte*)data;
++	VK_CHECK(qvkMapMemory(vk.device, vk_world.staging_buffer_memory, 0, VK_WHOLE_SIZE, 0, &data));
++	vk_world.staging_buffer_ptr = (byte*)data;
+ #ifdef USE_UPLOAD_QUEUE
+-	vk.staging_buffer.offset = 0;
++	vk_world.staging_buffer_offset = 0;
+ #endif
+-	SET_OBJECT_NAME( vk.staging_buffer.handle, "staging buffer", VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT );
+-	SET_OBJECT_NAME( vk.staging_buffer.memory, "staging buffer memory", VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT );
++	SET_OBJECT_NAME( vk_world.staging_buffer, "staging buffer", VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT );
++	SET_OBJECT_NAME( vk_world.staging_buffer_memory, "staging buffer memory", VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT );
+ }
+ 
+ 
+@@ -2304,17 +2297,16 @@ static VkSampler vk_find_sampler( const Vk_Sampler_Def *def ) {
+ 	int i;
+ 
+ 	// Look for sampler among existing samplers.
+-	for ( i = 0; i < vk.samplers.count; i++ ) {
+-		const Vk_Sampler_Def *cur_def = &vk.samplers.def[i];
++	for ( i = 0; i < vk_world.num_samplers; i++ ) {
++		const Vk_Sampler_Def *cur_def = &vk_world.sampler_defs[i];
+ 		if ( memcmp( cur_def, def, sizeof( *def ) ) == 0 ) {
+-			return vk.samplers.handle[i];
++			return vk_world.samplers[i];
+ 		}
+ 	}
+ 
+ 	// Create new sampler.
+-	if ( vk.samplers.count >= MAX_VK_SAMPLERS ) {
++	if ( vk_world.num_samplers >= MAX_VK_SAMPLERS ) {
+ 		ri.Error( ERR_DROP, "vk_find_sampler: MAX_VK_SAMPLERS hit\n" );
+-		// return VK_NULL_HANDLE;
+ 	}
+ 
+ 	address_mode = def->address_mode;
+@@ -2389,31 +2381,17 @@ static VkSampler vk_find_sampler( const Vk_Sampler_Def *def ) {
+ 
+ 	VK_CHECK( qvkCreateSampler( vk.device, &desc, NULL, &sampler ) );
+ 
+-	SET_OBJECT_NAME( sampler, va( "image sampler %i", vk.samplers.count ), VK_DEBUG_REPORT_OBJECT_TYPE_SAMPLER_EXT );
++	SET_OBJECT_NAME( sampler, va( "image sampler %i", vk_world.num_samplers ), VK_DEBUG_REPORT_OBJECT_TYPE_SAMPLER_EXT );
+ 
+-	vk.samplers.def[ vk.samplers.count ] = *def;
+-	vk.samplers.handle[ vk.samplers.count ] = sampler;
+-	vk.samplers.count++;
++	vk_world.sampler_defs[ vk_world.num_samplers ] = *def;
++	vk_world.samplers[ vk_world.num_samplers ] = sampler;
++	vk_world.num_samplers++;
+ 
+ 	return sampler;
+ }
+ 
+ 
+-void vk_destroy_samplers( void )
+-{
+-	int i;
+-
+-	for ( i = 0; i < vk.samplers.count; i++ ) {
+-		qvkDestroySampler( vk.device, vk.samplers.handle[i], NULL );
+-		memset( &vk.samplers.def[i], 0x0, sizeof( vk.samplers.def[i] ) );
+-		vk.samplers.handle[i] = VK_NULL_HANDLE;
+-	}
+-
+-	vk.samplers.count = 0;
+-}
+-
+-
+-void vk_update_attachment_descriptors( void ) {
++static void vk_update_attachment_descriptors( void ) {
+ 
+ 	if ( vk.color_image_view )
+ 	{
+@@ -2682,9 +2660,11 @@ qboolean vk_alloc_vbo( const byte *vbo_data, int vbo_size )
+ 	VkDeviceSize vertex_buffer_offset;
+ 	VkDeviceSize allocationSize;
+ 	uint32_t memory_type_bits;
++	VkBuffer staging_vertex_buffer;
++	VkDeviceMemory staging_buffer_memory;
+ 	VkCommandBuffer command_buffer;
+ 	VkBufferCopy copyRegion[1];
+-	VkDeviceSize uploadDone;
++	void *data;
+ 
+ 	vk_release_vbo();
+ 
+@@ -2700,6 +2680,11 @@ qboolean vk_alloc_vbo( const byte *vbo_data, int vbo_size )
+ 	desc.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+ 	VK_CHECK( qvkCreateBuffer( vk.device, &desc, NULL, &vk.vbo.vertex_buffer ) );
+ 
++	// staging buffer
++	desc.size = vbo_size;
++	desc.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
++	VK_CHECK( qvkCreateBuffer( vk.device, &desc, NULL, &staging_vertex_buffer ) );
++
+ 	// memory requirements
+ 	qvkGetBufferMemoryRequirements( vk.device, vk.vbo.vertex_buffer, &vb_mem_reqs );
+ 	vertex_buffer_offset = 0;
+@@ -2715,25 +2700,33 @@ qboolean vk_alloc_vbo( const byte *vbo_data, int vbo_size )
+ 
+ 	// staging buffers
+ 
+-#ifdef USE_UPLOAD_QUEUE
+-	vk_flush_staging_buffer( qfalse );
+-#endif
+-	// utilize existing staging buffer
+-	uploadDone = 0;
+-	while ( uploadDone < vbo_size ) {
+-		VkDeviceSize uploadSize = vk.staging_buffer.size;
+-		if ( uploadDone + uploadSize > vbo_size ) {
+-			uploadSize = vbo_size - uploadDone;
+-		}
+-		memcpy(vk.staging_buffer.ptr + 0, vbo_data + uploadDone, uploadSize);
+-		command_buffer = begin_command_buffer();
+-		copyRegion[0].srcOffset = 0;
+-		copyRegion[0].dstOffset = uploadDone;
+-		copyRegion[0].size = uploadSize;
+-		qvkCmdCopyBuffer( command_buffer, vk.staging_buffer.handle, vk.vbo.vertex_buffer, 1, &copyRegion[0] );
+-		end_command_buffer( command_buffer, __func__ );
+-		uploadDone += uploadSize;
+-	}
++	// memory requirements
++	qvkGetBufferMemoryRequirements( vk.device, staging_vertex_buffer, &vb_mem_reqs );
++	vertex_buffer_offset = 0;
++	allocationSize = vertex_buffer_offset + vb_mem_reqs.size;
++	memory_type_bits = vb_mem_reqs.memoryTypeBits;
++
++	alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
++	alloc_info.pNext = NULL;
++	alloc_info.allocationSize = allocationSize;
++	alloc_info.memoryTypeIndex = find_memory_type( memory_type_bits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
++	VK_CHECK( qvkAllocateMemory( vk.device, &alloc_info, NULL, &staging_buffer_memory ) );
++	qvkBindBufferMemory( vk.device, staging_vertex_buffer, staging_buffer_memory, vertex_buffer_offset );
++
++	VK_CHECK( qvkMapMemory( vk.device, staging_buffer_memory, 0, VK_WHOLE_SIZE, 0, &data ) );
++	memcpy( (byte*)data + vertex_buffer_offset, vbo_data, vbo_size );
++	qvkUnmapMemory( vk.device, staging_buffer_memory );
++
++	command_buffer = begin_command_buffer();
++	copyRegion[0].srcOffset = 0;
++	copyRegion[0].dstOffset = 0;
++	copyRegion[0].size = vbo_size;
++	qvkCmdCopyBuffer( command_buffer, staging_vertex_buffer, vk.vbo.vertex_buffer, 1, &copyRegion[0] );
++
++	end_command_buffer( command_buffer, __func__ );
++
++	qvkDestroyBuffer( vk.device, staging_vertex_buffer, NULL );
++	qvkFreeMemory( vk.device, staging_buffer_memory, NULL );
+ 
+ 	SET_OBJECT_NAME( vk.vbo.vertex_buffer, "static VBO", VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT );
+ 	SET_OBJECT_NAME( vk.vbo.buffer_memory, "static VBO memory", VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT );
+@@ -3727,6 +3720,7 @@ static void vk_create_sync_primitives( void ) {
+ 		// swapchain image acquired
+ 		VK_CHECK( qvkCreateSemaphore( vk.device, &desc, NULL, &vk.tess[i].image_acquired ) );
+ 
++		VK_CHECK( qvkCreateSemaphore( vk.device, &desc, NULL, &vk.tess[i].rendering_finished ) );
+ #ifdef USE_UPLOAD_QUEUE
+ 		// second semaphore to synchronize additional tasks (e.g. image upload)
+ 		VK_CHECK( qvkCreateSemaphore( vk.device, &desc, NULL, &vk.tess[i].rendering_finished2 ) );
+@@ -3740,6 +3734,7 @@ static void vk_create_sync_primitives( void ) {
+ 		vk.tess[i].waitForFence = qfalse;
+ 
+ 		SET_OBJECT_NAME( vk.tess[i].image_acquired, va( "image_acquired semaphore %i", i ), VK_DEBUG_REPORT_OBJECT_TYPE_SEMAPHORE_EXT );
++		SET_OBJECT_NAME( vk.tess[i].rendering_finished, va( "rendering_finished semaphore %i", i ), VK_DEBUG_REPORT_OBJECT_TYPE_SEMAPHORE_EXT );
+ #ifdef USE_UPLOAD_QUEUE
+ 		SET_OBJECT_NAME( vk.tess[i].rendering_finished2, va( "rendering_finished2 semaphore %i", i ), VK_DEBUG_REPORT_OBJECT_TYPE_SEMAPHORE_EXT );
+ #endif
+@@ -3770,6 +3765,7 @@ static void vk_destroy_sync_primitives( void  ) {
+ 
+ 	for ( i = 0; i < NUM_COMMAND_BUFFERS; i++ ) {
+ 		qvkDestroySemaphore( vk.device, vk.tess[i].image_acquired, NULL );
++		qvkDestroySemaphore( vk.device, vk.tess[i].rendering_finished, NULL );
+ #ifdef USE_UPLOAD_QUEUE
+ 		qvkDestroySemaphore( vk.device, vk.tess[i].rendering_finished2, NULL );
+ #endif
+@@ -3835,10 +3831,6 @@ static void vk_destroy_swapchain( void ) {
+ 			qvkDestroyImageView( vk.device, vk.swapchain_image_views[i], NULL );
+ 			vk.swapchain_image_views[i] = VK_NULL_HANDLE;
+ 		}
+-		if ( vk.swapchain_rendering_finished[i] != VK_NULL_HANDLE ) {
+-			qvkDestroySemaphore( vk.device, vk.swapchain_rendering_finished[i], NULL );
+-			vk.swapchain_rendering_finished[i] = VK_NULL_HANDLE;
+-		}
+ 	}
+ 
+ 	qvkDestroySwapchainKHR( vk.device, vk.swapchain, NULL );
+@@ -3848,15 +3840,10 @@ static void vk_destroy_attachments( void );
+ static void vk_destroy_render_passes( void );
+ static void vk_destroy_pipelines( qboolean resetCount );
+ 
+-static void vk_restart_swapchain( const char *funcname, VkResult res )
++static void vk_restart_swapchain( const char *funcname )
+ {
+ 	uint32_t i;
+-
+-#ifdef _DEBUG
+-	ri.Printf( PRINT_WARNING, "%s(%s): restarting swapchain...\n", funcname, vk_result_string( res ) );
+-#else
+-	ri.Printf(PRINT_WARNING, "%s(): restarting swapchain...\n", funcname );
+-#endif
++	ri.Printf( PRINT_WARNING, "%s(): restarting swapchain...\n", funcname );
+ 
+ 	vk_wait_idle();
+ 
+@@ -3879,7 +3866,7 @@ static void vk_restart_swapchain( const char *funcname, VkResult res )
+ 	setup_surface_formats( vk.physical_device );
+ 
+ 	vk_create_sync_primitives();
+-	vk_create_swapchain( vk.physical_device, vk.device, vk_surface, vk.present_format, &vk.swapchain, qfalse );
++	vk_create_swapchain( vk.physical_device, vk.device, vk_surface, vk.present_format, &vk.swapchain );
+ 	vk_create_attachments();
+ 	vk_create_render_passes();
+ 	vk_create_framebuffers();
+@@ -3997,49 +3984,6 @@ void vk_initialize( void )
+ 	if ( vk.screenMapHeight < 4 )
+ 		vk.screenMapHeight = 4;
+ 
+-	vk.defaults.geometry_size = VERTEX_BUFFER_SIZE;
+-	vk.defaults.staging_size = STAGING_BUFFER_SIZE;
+-
+-	// get memory size & defaults
+-	{
+-		VkPhysicalDeviceMemoryProperties props;
+-		VkDeviceSize maxDedicatedSize = 0;
+-		VkDeviceSize maxBARSize = 0;
+-		qvkGetPhysicalDeviceMemoryProperties( vk.physical_device, &props );
+-		for ( i = 0; i < props.memoryTypeCount; i++ ) {
+-			if ( props.memoryTypes[i].propertyFlags == VK_MEMORY_HEAP_DEVICE_LOCAL_BIT ) {
+-				maxDedicatedSize = props.memoryHeaps[props.memoryTypes[i].heapIndex].size;
+-			}
+-			else if ( props.memoryTypes[i].propertyFlags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT ) {
+-				if ( maxDedicatedSize == 0 || props.memoryHeaps[props.memoryTypes[i].heapIndex].size > maxDedicatedSize ) {
+-					maxDedicatedSize = props.memoryHeaps[props.memoryTypes[i].heapIndex].size;
+-				}
+-			}
+-			if ( props.memoryTypes[i].propertyFlags == (VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ) {
+-				maxBARSize = props.memoryHeaps[props.memoryTypes[i].heapIndex].size;
+-			}
+-			else if ( (props.memoryTypes[i].propertyFlags & (VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) == (VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ) {
+-				if ( maxBARSize == 0 ) {
+-					maxBARSize = props.memoryHeaps[props.memoryTypes[i].heapIndex].size;
+-				}
+-			}
+-		}
+-
+-		if ( maxDedicatedSize != 0 ) {
+-			ri.Printf( PRINT_ALL, "...device memory size: %iMB\n", (int)((maxDedicatedSize + (1024 * 1024) - 1) / (1024 * 1024)) );
+-		}
+-		if ( maxBARSize != 0 ) {
+-			if ( maxBARSize >= 128 * 1024 * 1024 ) {
+-				// user larger buffers to avoid potential reallocations
+-				vk.defaults.geometry_size = VERTEX_BUFFER_SIZE_HI;
+-				vk.defaults.staging_size = STAGING_BUFFER_SIZE_HI;
+-			}
+-#ifdef _DEBUG
+-			ri.Printf( PRINT_ALL, "...BAR memory size: %iMB\n", (int)((maxBARSize + (1024 * 1024) - 1) / (1024 * 1024)) );
+-#endif
+-		}
+-	}
+-
+ 	// fill glConfig information
+ 
+ 	// maxTextureSize must not exceed IMAGE_CHUNK_SIZE
+@@ -4130,12 +4074,6 @@ void vk_initialize( void )
+ 
+ 	SET_OBJECT_NAME( (intptr_t)vk.device, glConfig.renderer_string, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT );
+ 
+-	// do early texture mode setup to avoid redundant descriptor updates in GL_SetDefaultState()
+-	vk.samplers.filter_min = -1;
+-	vk.samplers.filter_max = -1;
+-	GL_TextureMode( r_textureMode->string );
+-	r_textureMode->modified = qfalse;
+-
+ 	//
+ 	// Sync primitives.
+ 	//
+@@ -4297,7 +4235,7 @@ void vk_initialize( void )
+ 		SET_OBJECT_NAME( vk.pipeline_layout_blend, "pipeline layout - blend", VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_LAYOUT_EXT );
+ 	}
+ 
+-	vk.geometry_buffer_size_new = vk.defaults.geometry_size;
++	vk.geometry_buffer_size_new = VERTEX_BUFFER_SIZE;
+ 	vk_create_geometry_buffers( vk.geometry_buffer_size_new );
+ 	vk.geometry_buffer_size_new = 0;
+ 
+@@ -4317,7 +4255,7 @@ void vk_initialize( void )
+ 	// swapchain
+ 	vk.initSwapchainLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+ 	//vk.initSwapchainLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+-	vk_create_swapchain( vk.physical_device, vk.device, vk_surface, vk.present_format, &vk.swapchain, qtrue );
++	vk_create_swapchain( vk.physical_device, vk.device, vk_surface, vk.present_format, &vk.swapchain );
+ 
+ 	// color/depth attachments
+ 	vk_create_attachments();
+@@ -4328,11 +4266,6 @@ void vk_initialize( void )
+ 	// framebuffers for each swapchain image
+ 	vk_create_framebuffers();
+ 
+-	// preallocate staging buffer
+-	if ( vk.defaults.staging_size == STAGING_BUFFER_SIZE_HI ) {
+-		vk_alloc_staging_buffer( vk.defaults.staging_size );
+-	}
+-
+ 	vk.active = qtrue;
+ }
+ 
+@@ -4544,12 +4477,8 @@ void vk_shutdown( refShutdownCode_t code )
+ 	vk_release_vbo();
+ #endif
+ 
+-	vk_clean_staging_buffer();
+-
+ 	vk_release_geometry_buffers();
+ 
+-	vk_destroy_samplers();
+-
+ 	vk_destroy_sync_primitives();
+ 
+ 	qvkDestroyBuffer( vk.device, vk.storage.buffer, NULL );
+@@ -4676,7 +4605,8 @@ void vk_release_resources( void ) {
+ 
+ 	vk_clean_staging_buffer();
+ 
+-	// vk_destroy_samplers();
++	for (i = 0; i < vk_world.num_samplers; i++)
++		qvkDestroySampler(vk.device, vk_world.samplers[i], NULL);
+ 
+ 	for ( i = vk.pipelines_world_base; i < vk.pipelines_count; i++ ) {
+ 		for ( j = 0; j < RENDER_PASS_COUNT; j++ ) {
+@@ -4695,15 +4625,12 @@ void vk_release_resources( void ) {
+ 	if ( vk_world.num_image_chunks > 1 ) {
+ 		// if we allocated more than 2 image chunks - use doubled default size
+ 		vk.image_chunk_size = (IMAGE_CHUNK_SIZE * 2);
+-	}
+-#if 0 // do not reduce chunk size
+-	else if ( vk_world.num_image_chunks == 1 ) {
++	} else if ( vk_world.num_image_chunks == 1 ) {
+ 		// otherwise set to default if used less than a half
+ 		if ( vk_world.image_chunks[0].used < ( IMAGE_CHUNK_SIZE - (IMAGE_CHUNK_SIZE / 10) ) ) {
+ 			vk.image_chunk_size = IMAGE_CHUNK_SIZE;
+ 		}
+ 	}
+-#endif
+ 
+ 	Com_Memset( &vk_world, 0, sizeof( vk_world ) );
+ 
+@@ -4893,16 +4820,20 @@ static byte *resample_image_data( const int target_format, byte *data, const int
+ 
+ void vk_upload_image_data( image_t *image, int x, int y, int width, int height, int mipmaps, byte *pixels, int size, qboolean update ) {
+ 
+-	VkCommandBuffer   command_buffer;
++	VkCommandBuffer command_buffer;
+ 	VkBufferImageCopy regions[16];
+ 	VkBufferImageCopy region;
++
+ 	byte *buf;
+-	int n;
++	int bpp;
++#ifdef USE_UPLOAD_QUEUE
++	int i;
++#endif
+ 
+ 	int num_regions = 0;
+ 	int buffer_size = 0;
+ 
+-	buf = resample_image_data( image->internalFormat, pixels, size, &n /*bpp*/ );
++	buf = resample_image_data( image->internalFormat, pixels, size, &bpp );
+ 
+ 	while (qtrue) {
+ 		Com_Memset(&region, 0, sizeof(region));
+@@ -4923,7 +4854,7 @@ void vk_upload_image_data( image_t *image, int x, int y, int width, int height,
+ 		regions[num_regions] = region;
+ 		num_regions++;
+ 
+-		buffer_size += width * height * n;
++		buffer_size += width * height * bpp;
+ 
+ 		if ( num_regions >= mipmaps || (width == 1 && height == 1) || num_regions >= ARRAY_LEN( regions ) )
+ 			break;
+@@ -4939,27 +4870,17 @@ void vk_upload_image_data( image_t *image, int x, int y, int width, int height,
+ 	}
+ 
+ #ifdef USE_UPLOAD_QUEUE
+-	if ( vk_wait_staging_buffer() ) {
+-		// wait for vkQueueSubmit() completion before new upload
+-	}
+-
+-	if ( vk.staging_buffer.size - vk.staging_buffer.offset < buffer_size ) {
+-		// try to flush staging buffer and reset offset
+-		vk_flush_staging_buffer( qfalse );
+-	}
++	vk_wait_staging_buffer();
+ 
+-	if ( vk.staging_buffer.size /* - vk_world.staging_buffer_offset */ < buffer_size ) {
+-		// if still not enough - reallocate staging buffer
+-		vk_alloc_staging_buffer( buffer_size );
+-	}
++	ensure_staging_buffer_allocation( buffer_size );
+ 
+-	for ( n = 0; n < num_regions; n++ ) {
+-		regions[n].bufferOffset += vk.staging_buffer.offset;
++	for ( i = 0; i < num_regions; i++ ) {
++		regions[i].bufferOffset += vk_world.staging_buffer_offset;
+ 	}
+ 
+-	Com_Memcpy( vk.staging_buffer.ptr + vk.staging_buffer.offset, buf, buffer_size );
++	Com_Memcpy( vk_world.staging_buffer_ptr + vk_world.staging_buffer_offset, buf, buffer_size );
+ 
+-	if ( vk.staging_buffer.offset == 0 ) {
++	if ( vk_world.staging_buffer_offset == 0 ) {
+ 		VkCommandBufferBeginInfo begin_info;
+ 		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+ 		begin_info.pNext = NULL;
+@@ -4967,38 +4888,33 @@ void vk_upload_image_data( image_t *image, int x, int y, int width, int height,
+ 		begin_info.pInheritanceInfo = NULL;
+ 		VK_CHECK( qvkBeginCommandBuffer( vk.staging_command_buffer, &begin_info ) );
+ 	}
+-
+ 	//ri.Printf( PRINT_WARNING, "batch @%6i + %i %s \n", (int)vk_world.staging_buffer_offset, (int)buffer_size, image->imgName );
+-	vk.staging_buffer.offset += buffer_size;
++	vk_world.staging_buffer_offset += buffer_size;
+ 
+ 	command_buffer = vk.staging_command_buffer;
+-
+-	if ( update ) {
+-		record_image_layout_transition( command_buffer, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, 0 );
+-	} else {
+-		record_image_layout_transition( command_buffer, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_HOST_BIT, 0 );
+-	}
+-
+-	qvkCmdCopyBufferToImage( command_buffer, vk.staging_buffer.handle, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, num_regions, regions );
+-
+-	// final transition after upload comleted
+-	record_image_layout_transition( command_buffer, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0 );
+ #else
+-	if ( vk.staging_buffer.size < buffer_size ) {
+-		vk_alloc_staging_buffer( buffer_size );
+-	}
++	ensure_staging_buffer_allocation( buffer_size );
+ 
+-	Com_Memcpy( vk.staging_buffer.ptr, buf, buffer_size );
++	Com_Memcpy( vk_world.staging_buffer_ptr, buf, buffer_size );
+ 
+ 	command_buffer = begin_command_buffer();
++#endif
++
+ 	// record_buffer_memory_barrier( command_buffer, vk_world.staging_buffer, VK_WHOLE_SIZE, 0, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT );
++
+ 	if ( update ) {
+-		record_image_layout_transition( command_buffer, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, 0 );
++		record_image_layout_transition( command_buffer, image->handle, VK_IMAGE_ASPECT_COLOR_BIT,
++			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, 0 );
+ 	} else {
+-		record_image_layout_transition( command_buffer, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_HOST_BIT, 0 );
++		record_image_layout_transition( command_buffer, image->handle, VK_IMAGE_ASPECT_COLOR_BIT,
++			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_HOST_BIT, 0 );
+ 	}
+-	qvkCmdCopyBufferToImage( command_buffer, vk.staging_buffer.handle, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, num_regions, regions );
++
++	qvkCmdCopyBufferToImage( command_buffer, vk_world.staging_buffer, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, num_regions, regions );
++
+ 	record_image_layout_transition( command_buffer, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0 );
++
++#ifndef USE_UPLOAD_QUEUE
+ 	end_command_buffer( command_buffer, __func__ );
+ #endif
+ 
+@@ -7330,7 +7246,7 @@ void vk_begin_frame( void )
+ 		return;
+ 
+ #ifdef USE_UPLOAD_QUEUE
+-	vk_flush_staging_buffer( qtrue );
++	vk_submit_staging_buffer( qtrue );
+ #endif
+ 
+ 	vk.cmd = &vk.tess[ vk.cmd_index ];
+@@ -7360,7 +7276,7 @@ _retry:
+ 			if ( res == VK_ERROR_OUT_OF_DATE_KHR && retry == qfalse ) {
+ 				// swapchain re-creation needed
+ 				retry = qtrue;
+-				vk_restart_swapchain( __func__, res );
++				vk_restart_swapchain( __func__ );
+ 				goto _retry;
+ 			} else {
+ 				ri.Error( ERR_FATAL, "vkAcquireNextImageKHR returned %s", vk_result_string( res ) );
+@@ -7415,7 +7331,6 @@ _retry:
+ 	Com_Memset( vk.cmd->vbo_offset, 0, sizeof( vk.cmd->vbo_offset ) );
+ 	vk.cmd->curr_index_buffer = VK_NULL_HANDLE;
+ 	vk.cmd->curr_index_offset = 0;
+-	vk.cmd->num_indexes = 0;
+ 
+ 	Com_Memset( &vk.cmd->descriptor_set, 0, sizeof( vk.cmd->descriptor_set ) );
+ 	vk.cmd->descriptor_set.start = ~0U;
+@@ -7530,7 +7445,7 @@ void vk_end_frame( void )
+ 			submit_info.waitSemaphoreCount = 2;
+ 			submit_info.pWaitSemaphores = &waits[0];
+ 			submit_info.pWaitDstStageMask = &wait_dst_stage_mask[0];
+-			signals[0] = vk.swapchain_rendering_finished[ vk.cmd->swapchain_image_index ];
++			signals[0] = vk.cmd->rendering_finished;
+ 			signals[1] = vk.cmd->rendering_finished2;
+ 			submit_info.signalSemaphoreCount = 2;
+ 			submit_info.pSignalSemaphores = &signals[0];
+@@ -7543,7 +7458,7 @@ void vk_end_frame( void )
+ 			submit_info.waitSemaphoreCount = 2;
+ 			submit_info.pWaitSemaphores = &waits[0];
+ 			submit_info.pWaitDstStageMask = &wait_dst_stage_mask[0];
+-			signals[0] = vk.swapchain_rendering_finished[ vk.cmd->swapchain_image_index ];
++			signals[0] = vk.cmd->rendering_finished;
+ 			signals[1] = vk.cmd->rendering_finished2;
+ 			submit_info.signalSemaphoreCount = 2;
+ 			submit_info.pSignalSemaphores = &signals[0];
+@@ -7554,14 +7469,14 @@ void vk_end_frame( void )
+ 			submit_info.pWaitSemaphores = &vk.cmd->image_acquired;
+ 			submit_info.pWaitDstStageMask = &wait_dst_stage_mask[0];
+ 			submit_info.signalSemaphoreCount = 1;
+-			submit_info.pSignalSemaphores = &vk.swapchain_rendering_finished[ vk.cmd->swapchain_image_index ];
++			submit_info.pSignalSemaphores = &vk.cmd->rendering_finished;
+ 		}
+ #else
+ 		submit_info.waitSemaphoreCount = 1;
+ 		submit_info.pWaitSemaphores = &vk.cmd->image_acquired;
+ 		submit_info.pWaitDstStageMask = &wait_dst_stage_mask;
+ 		submit_info.signalSemaphoreCount = 1;
+-		submit_info.pSignalSemaphores = &vk.swapchain_rendering_finished[ vk.cmd->swapchain_image_index ];
++		submit_info.pSignalSemaphores = &vk.cmd->rendering_finished;
+ #endif
+ 	} else {
+ 		submit_info.waitSemaphoreCount = 0;
+@@ -7598,7 +7513,7 @@ void vk_present_frame( void )
+ 	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+ 	present_info.pNext = NULL;
+ 	present_info.waitSemaphoreCount = 1;
+-	present_info.pWaitSemaphores = &vk.swapchain_rendering_finished[ vk.cmd->swapchain_image_index ];
++	present_info.pWaitSemaphores = &vk.cmd->rendering_finished;
+ 	present_info.swapchainCount = 1;
+ 	present_info.pSwapchains = &vk.swapchain;
+ 	present_info.pImageIndices = &vk.cmd->swapchain_image_index;
+@@ -7613,8 +7528,8 @@ void vk_present_frame( void )
+ 		case VK_SUBOPTIMAL_KHR:
+ 		case VK_ERROR_OUT_OF_DATE_KHR:
+ 			// swapchain re-creation needed
+-			vk_restart_swapchain( __func__, res );
+-			return;
++			vk_restart_swapchain( __func__ );
++			break;
+ 		case VK_ERROR_DEVICE_LOST:
+ 			// we can ignore that
+ 			ri.Printf( PRINT_DEVELOPER, "vkQueuePresentKHR: device lost\n" );
+diff --git a/code/renderervk/vk.h b/code/renderervk/vk.h
+index d4d3b079..a95885ac 100644
+--- a/code/renderervk/vk.h
++++ b/code/renderervk/vk.h
+@@ -12,11 +12,8 @@
+ #define MAX_VK_SAMPLERS 32
+ #define MAX_VK_PIPELINES ((1024 + 128)*2)
+ 
+-#define VERTEX_BUFFER_SIZE     (4 * 1024 * 1024)  /* by default */
+-#define VERTEX_BUFFER_SIZE_HI  (8 * 1024 * 1024)
+-
+-#define STAGING_BUFFER_SIZE    (2 * 1024 * 1024)  /* by default */
+-#define STAGING_BUFFER_SIZE_HI (24 * 1024 * 1024) /* enough for max.texture size upload with all mip levels at once */
++#define VERTEX_BUFFER_SIZE (4 * 1024 * 1024)	/* by default */
++#define STAGING_BUFFER_SIZE (2 * 1024 * 1024)	/* by default */
+ 
+ #define IMAGE_CHUNK_SIZE (32 * 1024 * 1024)
+ #define MAX_IMAGE_CHUNKS 56
+@@ -25,7 +22,7 @@
+ 
+ #define USE_REVERSED_DEPTH
+ 
+-//#define USE_UPLOAD_QUEUE
++#define USE_UPLOAD_QUEUE
+ 
+ #define VK_NUM_BLOOM_PASSES 4
+ 
+@@ -257,8 +254,6 @@ void vk_create_image( image_t *image, int width, int height, int mip_levels );
+ void vk_upload_image_data( image_t *image, int x, int y, int width, int height, int miplevels, byte *pixels, int size, qboolean update );
+ void vk_update_descriptor_set( image_t *image, qboolean mipmap );
+ void vk_destroy_image_resources( VkImage *image, VkImageView *imageView );
+-void vk_update_attachment_descriptors( void );
+-void vk_destroy_samplers( void );
+ 
+ uint32_t vk_find_pipeline_ext( uint32_t base, const Vk_Pipeline_Def *def, qboolean use );
+ void vk_get_pipeline_def( uint32_t pipeline, Vk_Pipeline_Def *def );
+@@ -316,6 +311,7 @@ typedef struct vk_tess_s {
+ 	VkSemaphore image_acquired;
+ 	uint32_t	swapchain_image_index;
+ 	qboolean	swapchain_image_acquired;
++	VkSemaphore rendering_finished;
+ #ifdef USE_UPLOAD_QUEUE
+ 	VkSemaphore rendering_finished2;
+ #endif
+@@ -364,7 +360,6 @@ typedef struct {
+ 	uint32_t swapchain_image_count;
+ 	VkImage swapchain_images[MAX_SWAPCHAIN_IMAGES];
+ 	VkImageView swapchain_image_views[MAX_SWAPCHAIN_IMAGES];
+-	VkSemaphore swapchain_rendering_finished[MAX_SWAPCHAIN_IMAGES];
+ 	//uint32_t swapchain_image_index;
+ 
+ 	VkCommandPool command_pool;
+@@ -623,29 +618,6 @@ typedef struct {
+ 	qboolean aux_fence_wait;
+ #endif
+ 
+-	struct staging_buffer_s {
+-		VkBuffer handle;
+-		VkDeviceMemory memory;
+-		VkDeviceSize size;
+-		byte *ptr; // pointer to mapped staging buffer
+-#ifdef USE_UPLOAD_QUEUE
+-		VkDeviceSize offset;
+-#endif
+-	} staging_buffer;
+-
+-	struct samplers_s {
+-		int count;
+-		Vk_Sampler_Def def[MAX_VK_SAMPLERS];
+-		VkSampler handle[MAX_VK_SAMPLERS];
+-		int filter_min;
+-		int filter_max;
+-	} samplers;
+-
+-	struct defaults_t {
+-		VkDeviceSize staging_size;
+-		VkDeviceSize geometry_size;
+-	} defaults;
+-
+ } Vk_Instance;
+ 
+ typedef struct {
+@@ -656,12 +628,28 @@ typedef struct {
+ // Vk_World contains vulkan resources/state requested by the game code.
+ // It is reinitialized on a map change.
+ typedef struct {
++	//
++	// Resources.
++	//
++	int num_samplers;
++	Vk_Sampler_Def sampler_defs[MAX_VK_SAMPLERS];
++	VkSampler samplers[MAX_VK_SAMPLERS];
++
+ 	//
+ 	// Memory allocations.
+ 	//
+ 	int num_image_chunks;
+ 	ImageChunk image_chunks[MAX_IMAGE_CHUNKS];
+ 
++	// Host visible memory used to copy image data to device local memory.
++	VkBuffer staging_buffer;
++	VkDeviceMemory staging_buffer_memory;
++	VkDeviceSize staging_buffer_size;
++	byte *staging_buffer_ptr; // pointer to mapped staging buffer
++#ifdef USE_UPLOAD_QUEUE
++	VkDeviceSize staging_buffer_offset;
++#endif
++
+ 	//
+ 	// State.
+ 	//
+diff --git a/code/sdl/sdl_input.c b/code/sdl/sdl_input.c
+index 2080e47d..a6b0fab2 100644
+--- a/code/sdl/sdl_input.c
++++ b/code/sdl/sdl_input.c
+@@ -29,6 +29,20 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ #include "../client/client.h"
+ #include "sdl_glw.h"
+ 
++#ifdef __APPLE__
++// Mouse acceleration needs to be disabled
++#define MACOS_X_ACCELERATION_HACK
++// Cursor needs hack to hide
++#define MACOS_X_CURSOR_HACK
++#endif
++
++#ifdef MACOS_X_ACCELERATION_HACK
++#include <IOKit/IOTypes.h>
++#include <IOKit/hidsystem/IOHIDLib.h>
++#include <IOKit/hidsystem/IOHIDParameter.h>
++#include <IOKit/hidsystem/event_status_driver.h>
++#endif
++
+ static cvar_t *in_keyboardDebug;
+ static cvar_t *in_forceCharset;
+ 
+@@ -41,6 +55,10 @@ static qboolean mouseAvailable = qfalse;
+ static qboolean mouseActive = qfalse;
+ 
+ static cvar_t *in_mouse;
++#ifdef MACOS_X_ACCELERATION_HACK
++static cvar_t *in_disablemacosxmouseaccel = NULL;
++static double originalMouseSpeed = -1.0;
++#endif
+ 
+ #ifdef USE_JOYSTICK
+ static cvar_t *in_joystick;
+@@ -373,6 +391,33 @@ static keyNum_t IN_TranslateSDLToQ3Key( SDL_Keysym *keysym, qboolean down )
+ 	return key;
+ }
+ 
++#ifdef MACOS_X_ACCELERATION_HACK
++/*
++===============
++IN_GetIOHandle
++===============
++*/
++static io_connect_t IN_GetIOHandle(void) // mac os x mouse accel hack
++{
++	io_connect_t iohandle = MACH_PORT_NULL;
++	kern_return_t status;
++	io_service_t iohidsystem = MACH_PORT_NULL;
++	mach_port_t masterport;
++
++	status = IOMasterPort(MACH_PORT_NULL, &masterport);
++	if(status != KERN_SUCCESS)
++		return 0;
++
++	iohidsystem = IORegistryEntryFromPath(masterport, kIOServicePlane ":/IOResources/IOHIDSystem");
++	if(!iohidsystem)
++		return 0;
++
++	status = IOServiceOpen(iohidsystem, mach_task_self(), kIOHIDParamConnectType, &iohandle);
++	IOObjectRelease(iohidsystem);
++
++	return iohandle;
++}
++#endif
+ 
+ /*
+ ===============
+@@ -407,6 +452,41 @@ static void IN_ActivateMouse( void )
+ 	if ( !mouseAvailable )
+ 		return;
+ 
++#ifdef MACOS_X_ACCELERATION_HACK
++	if (!mouseActive) // mac os x mouse accel hack
++	{
++		// Save the status of mouse acceleration
++		originalMouseSpeed = -1.0; // in case of error
++		if(in_disablemacosxmouseaccel->integer)
++		{
++			io_connect_t mouseDev = IN_GetIOHandle();
++			if(mouseDev != 0)
++			{
++				if(IOHIDGetAccelerationWithKey(mouseDev, CFSTR(kIOHIDMouseAccelerationType), &originalMouseSpeed) == kIOReturnSuccess)
++				{
++					Com_Printf("previous mouse acceleration: %f\n", originalMouseSpeed);
++					if(IOHIDSetAccelerationWithKey(mouseDev, CFSTR(kIOHIDMouseAccelerationType), -1.0) != kIOReturnSuccess)
++					{
++						Com_Printf("Could not disable mouse acceleration (failed at IOHIDSetAccelerationWithKey).\n");
++						Cvar_Set ("in_disablemacosxmouseaccel", 0);
++					}
++				}
++				else
++				{
++					Com_Printf("Could not disable mouse acceleration (failed at IOHIDGetAccelerationWithKey).\n");
++					Cvar_Set ("in_disablemacosxmouseaccel", 0);
++				}
++				IOServiceClose(mouseDev);
++			}
++			else
++			{
++				Com_Printf("Could not disable mouse acceleration (failed at IO_GetIOHandle).\n");
++				Cvar_Set ("in_disablemacosxmouseaccel", 0);
++			}
++		}
++	}
++#endif
++
+ 	if ( !mouseActive )
+ 	{
+ 		IN_GobbleMouseEvents();
+@@ -455,6 +535,25 @@ static void IN_DeactivateMouse( void )
+ 	if ( !mouseAvailable )
+ 		return;
+ 
++#ifdef MACOS_X_ACCELERATION_HACK
++	if (mouseActive) // mac os x mouse accel hack
++	{
++		if(originalMouseSpeed != -1.0)
++		{
++			io_connect_t mouseDev = IN_GetIOHandle();
++			if(mouseDev != 0)
++			{
++				Com_Printf("restoring mouse acceleration to: %f\n", originalMouseSpeed);
++				if(IOHIDSetAccelerationWithKey(mouseDev, CFSTR(kIOHIDMouseAccelerationType), originalMouseSpeed) != kIOReturnSuccess)
++					Com_Printf("Could not re-enable mouse acceleration (failed at IOHIDSetAccelerationWithKey).\n");
++				IOServiceClose(mouseDev);
++			}
++			else
++				Com_Printf("Could not re-enable mouse acceleration (failed at IO_GetIOHandle).\n");
++		}
++	}
++#endif
++
+ 	if ( mouseActive )
+ 	{
+ #ifdef DEBUG_EVENTS
+@@ -1390,6 +1489,10 @@ void IN_Init( void )
+ 		"  1 - di/raw mouse\n" \
+ 		" -1 - win32 mouse" );
+ 
++#ifdef MACOS_X_ACCELERATION_HACK
++	in_disablemacosxmouseaccel = Cvar_Get( "in_disablemacosxmouseaccel", "1", CVAR_ARCHIVE );
++#endif
++
+ #ifdef USE_JOYSTICK
+ 	in_joystick = Cvar_Get( "in_joystick", "0", CVAR_ARCHIVE|CVAR_LATCH );
+ 	Cvar_SetDescription( in_joystick, "Whether or not joystick support is on." );
+diff --git a/code/server/server.h b/code/server/server.h
+index 91b5097a..d096f685 100644
+--- a/code/server/server.h
++++ b/code/server/server.h
+@@ -115,7 +115,7 @@ typedef enum {
+ 	CS_FREE = 0,	// can be reused for a new connection
+ 	CS_ZOMBIE,		// client has been disconnected, but don't reuse
+ 					// connection for a couple seconds
+-	CS_CONNECTED,	// has been assigned to a client_t, but no gamestate yet or downloading
++	CS_CONNECTED,	// has been assigned to a client_t, but no gamestate yet
+ 	CS_PRIMED,		// gamestate has been sent, but client hasn't sent a usercmd
+ 	CS_ACTIVE		// client is fully in game
+ } clientState_t;
+diff --git a/code/server/sv_client.c b/code/server/sv_client.c
+index df65e1cd..5e8458cd 100644
+--- a/code/server/sv_client.c
++++ b/code/server/sv_client.c
+@@ -2091,7 +2091,7 @@ static qboolean SV_ClientCommand( client_t *cl, msg_t *msg ) {
+ 	cl->lastClientCommand = seq;
+ 	Q_strncpyz( cl->lastClientCommandString, s, sizeof( cl->lastClientCommandString ) );
+ 
+-	return qtrue; // continue processing
++	return qtrue; // continue procesing
+ }
+ 
+ 
+@@ -2229,29 +2229,6 @@ USER CMD EXECUTION
+ ===========================================================================
+ */
+ 
+-/*
+-===================
+-SV_AcknowledgeGamestate
+-===================
+-*/
+-static qboolean SV_AcknowledgeGamestate( client_t *cl, int serverId )
+-{
+-	if ( serverId == sv.serverId ) {
+-		const int messageDelta = cl->messageAcknowledge - cl->gamestateMessageNum;
+-		// accept either exact message delta or any positive delta with known identical gamestate sent before
+-		if ( messageDelta == 0 || ( messageDelta > 0 && cl->gamestateAck == GSA_SENT_ONCE ) ) {
+-			cl->gamestateAck = GSA_ACKED;
+-			// this client has acknowledged the new gamestate so it's
+-			// safe to start sending it the real time again
+-			Com_DPrintf( "%s acknowledged gamestate\n", cl->name );
+-			cl->oldServerTime = 0;
+-			return qtrue;
+-		}
+-	}
+-	return qfalse;
+-}
+-
+-
+ /*
+ ===================
+ SV_ExecuteClientMessage
+@@ -2321,14 +2298,23 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
+ 	if ( cl->state == CS_CONNECTED ) {
+ 		if ( !cl->downloading ) {
+ 			// send initial gamestate, client may not acknowledge it in next command but start downloading after SV_ClientCommand()
+-			if ( !SVC_RateLimit( &cl->gamestate_rate, 1, 1000 ) ) {
++			if ( !SVC_RateLimit( &cl->gamestate_rate, 2, 1000 ) ) {
+ 				SV_SendClientGameState( cl );
+ 			}
+ 			return;
+ 		}
+ 	} else if ( cl->gamestateAck != GSA_ACKED ) {
+ 		// early check for gamestate acknowledge
+-		SV_AcknowledgeGamestate( cl, serverId );
++		if ( serverId == sv.serverId ) {
++			const int delta = cl->messageAcknowledge - cl->gamestateMessageNum;
++			if ( delta == 0 || ( delta > 0 && cl->gamestateAck == GSA_SENT_ONCE ) ) {
++				cl->gamestateAck = GSA_ACKED;
++				// this client has acknowledged the new gamestate so it's
++				// safe to start sending it the real time again
++				Com_DPrintf( "%s acknowledged gamestate with delta %i\n", cl->name, delta );
++				cl->oldServerTime = 0;
++			}
++		}
+ 	}
+ 	// else if ( cl->state == CS_PRIMED ) {
+ 		// in case of download intention client replies with (messageAcknowledge - gamestateMessageNum) >= 0 and (serverId == sv.serverId), sv.serverId can drift away later
+@@ -2351,18 +2337,14 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
+ 	} while ( 1 );
+ 
+ 	if ( cl->gamestateAck != GSA_ACKED ) {
+-		// late check for gamestate acknowledge & resend
+-		if ( cl->state == CS_PRIMED ) {
+-			if ( !SV_AcknowledgeGamestate( cl, serverId ) ) {
+-				Com_DPrintf( "%s: dropped gamestate, resending\n", cl->name );
+-				if ( !SVC_RateLimit( &cl->gamestate_rate, 1, 1000 ) ) {
+-					SV_SendClientGameState( cl );
+-				}
+-				return; // message delta or serverId mismatch
++		// late check for gamestate resend
++		if ( cl->state == CS_PRIMED && cl->messageAcknowledge - cl->gamestateMessageNum > 0 ) {
++			Com_DPrintf( "%s: dropped gamestate, resending\n", cl->name );
++			if ( !SVC_RateLimit( &cl->gamestate_rate, 2, 1000 ) ) {
++				SV_SendClientGameState( cl );
+ 			}
+-		} else {
+-			return; // cl->state <= CS_CONNECTED
+ 		}
++		return;
+ 	}
+ 
+ 	// read the usercmd_t
+diff --git a/code/win32/win_main.c b/code/win32/win_main.c
+index 4f940d8f..c59da375 100644
+--- a/code/win32/win_main.c
++++ b/code/win32/win_main.c
+@@ -110,8 +110,6 @@ void NORETURN FORMAT_PRINTF(1, 2) QDECL Sys_Error( const char *error, ... ) {
+ 		DispatchMessage( &msg );
+ 	}
+ 
+-	SetUnhandledExceptionFilter( NULL );
+-
+ 	Sys_DestroyConsole();
+ 
+ 	exit( 1 );
+@@ -127,10 +125,7 @@ void NORETURN Sys_Quit( void ) {
+ 
+ 	timeEndPeriod( 1 );
+ 
+-	SetUnhandledExceptionFilter( NULL );
+-
+ 	Sys_DestroyConsole();
+-
+ 	exit( 0 );
+ }
+ 
