@@ -78,8 +78,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define LOAD_OPTIMIZE
 #define FPU_OPTIMIZE
 #define CONST_OPTIMIZE
-//#define RET_OPTIMIZE   // increases code size
-//#define MACRO_OPTIMIZE // slows down a bit?
+#define MACRO_OPTIMIZE
+//#define RET_OPTIMIZE // increases code size because of far-jumps 
+
 
 #define USE_LITERAL_POOL // allocate data for FP immediates at the end of the code
 
@@ -189,8 +190,7 @@ typedef enum
 // macro opcode sequences
 #ifdef MACRO_OPTIMIZE
 typedef enum {
-	MOP_UNDEF = OP_MAX,
-	MOP_ADD,
+	MOP_ADD = OP_MAX,
 	MOP_SUB,
 	MOP_BAND,
 	MOP_BOR,
@@ -1430,19 +1430,17 @@ static void mov_sx( uint32_t dst, uint32_t src )
 }
 
 
-static uint32_t clone_rx( uint32_t reg )
+static uint32_t split_rx( uint32_t reg )
 {
 	const uint32_t rx = alloc_rx( R_ECX );
-	mov_rx( rx, reg );
 	unmask_rx( reg );
 	return rx;
 }
 
 
-static uint32_t clone_sx( uint32_t reg )
+static uint32_t split_sx( uint32_t reg )
 {
 	const uint32_t sx = alloc_sx( R_XMM2 );
-	mov_sx( sx, reg );
 	unmask_sx( reg );
 	return sx;
 }
@@ -2254,11 +2252,15 @@ static qboolean IsCeilTrap( const vm_t *vm, const int trap )
 }
 
 
-static qboolean NextLoad( const var_addr_t *v, const instruction_t *i, int op )
+static qboolean VarIsReferenced( const var_addr_t *v, const instruction_t *i, int op )
 {
+	while ( i->op == OP_IGNORE && !i->jused ) {
+		i++;
+	}
 	if ( i->jused ) {
 		return qfalse;
 	}
+
 	if ( v->addr == i->value ) {
 		if ( i->op == OP_CONST ) {
 			if ( v->base == R_DATABASE && (i+1)->op == op ) {
@@ -2291,14 +2293,18 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 				return qfalse;
 			}
 			if ( addr_on_top( &var, R_DATABASE, R_PROCBASE ) ) {
-				if ( NextLoad( &var, ni + 1, OP_LOAD4 ) ) {
-					return qfalse; // store value in a register
+				// address is a global/local variable
+				if ( VarIsReferenced( &var, ni + 1, OP_LOAD4 ) ) {
+					// it will be referenced/loaded afterwards
+					// so store value in a register, do not optimize
+					return qfalse;
 				}
 				discard_top(); dec_opstack();						// v = *opstack; opstack -= 4
 				emit_store_imm32( ci->value, var.base, var.addr );	// (dword*)base_reg[ v ] = 0x12345678
 				var.size = 4;
 				wipe_var_range( &var );
 			} else {
+				// address is specified by register
 				int rx = load_rx_opstack( forceDataMask ? R_EAX : R_EAX | RCONST );
 				dec_opstack(); // eax = *opStack; opStack -= 4
 				emit_CheckReg( vm, rx, FUNC_DATW );
@@ -2312,7 +2318,7 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 
 		case OP_STORE2:	{
 			if ( addr_on_top( &var, R_DATABASE, R_PROCBASE ) ) {
-				if ( NextLoad( &var, ni + 1, OP_LOAD2 ) || find_rx_const_mask( ci->value, 0xFFFF ) ) {
+				if ( VarIsReferenced( &var, ni + 1, OP_LOAD2 ) || find_rx_const_mask( ci->value, 0xFFFF ) ) {
 					return qfalse; // store value in a register
 				}
 				discard_top(); dec_opstack();						// v = *opstack; opstack -= 4
@@ -2333,7 +2339,7 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 
 		case OP_STORE1: {
 			if ( addr_on_top( &var, R_DATABASE, R_PROCBASE ) ) {
-				if ( NextLoad( &var, ni + 1, OP_LOAD1 ) || find_rx_const_mask( ci->value, 0xFF ) ) {
+				if ( VarIsReferenced( &var, ni + 1, OP_LOAD1 ) || find_rx_const_mask( ci->value, 0xFF ) ) {
 					return qfalse; // store value in a register
 				}
 				discard_top(); dec_opstack();						// v = *opstack; opstack -= 4
@@ -2507,7 +2513,7 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 		}	
 
 		case OP_JUMP:
-			flush_volatile();
+			flush_opstack();
 			EmitJump( ni, ni->op, ci->value );
 			ip += 1; // OP_JUMP
 			return qtrue;
@@ -2523,6 +2529,7 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 		case OP_LEI:
 		case OP_LTI: {
 			int rx = load_rx_opstack( R_EAX | RCONST ); dec_opstack(); // eax = *opstack; opstack -= 4
+			flush_nonvolatile();
 			if ( ci->value == 0 && ( ni->op == OP_EQ || ni->op == OP_NE ) ) {
 				emit_test_rx( rx, rx );						// test eax, eax
 			} else{
@@ -2548,14 +2555,13 @@ VM_FindSameInst
 Search for the same base instruction ahead
 =================
 */
-static qboolean VM_FindSameInst( const instruction_t *base, int offset, int count ) {
+static qboolean VM_FindSameLoad4( const instruction_t *base, int offset ) {
 	const instruction_t *next = base + offset;
-	while ( count-- > 0 ) {
-		if ( next->jused ) {
-			break;
-		}
+	while ( !next->jused ) {
 		if ( next->op == base->op && next->value == base->value ) {
-			return qtrue;
+			if ( !(next + 1)->jused && (next + 1)->op == OP_LOAD4 ) {
+				return qtrue;
+			}
 		}
 		next++;
 	}
@@ -2571,6 +2577,50 @@ VM_FindMOps
 Search for known macro-op sequences
 =================
 */
+#ifdef MACRO_OPTIMIZE
+
+static int VM_IsMopSequence( const  instruction_t *i )
+{
+	int n;
+
+	// OP_LOCAL|OP_CONST + OP_LOCAL|OP_CONST + OP_LOAD4 + OP_CONST + OP_XXX + OP_STORE4
+
+	if ( i->op != OP_LOCAL && i->op != OP_CONST ) {
+		return OP_UNDEF;
+	}
+
+	if ( i->op != (i + 1)->op ) {
+		return OP_UNDEF;
+	}
+
+	if ( i->value != (i + 1)->value ) {
+		return OP_UNDEF;
+	}
+
+	for ( n = 1; n < 6; n++ ) {
+		if ( i[n].jused ) {
+			return OP_UNDEF;
+		}
+	}
+
+	if ( (i + 2)->op != OP_LOAD4 || (i + 3)->op != OP_CONST || (i + 5)->op != OP_STORE4 ) {
+		return OP_UNDEF;
+	}
+
+	switch ( (i + 4)->op ) {
+		case OP_ADD:	return MOP_ADD;
+		case OP_SUB:	return MOP_SUB;
+		case OP_BAND:	return MOP_BAND;
+		case OP_BOR:	return MOP_BOR;
+		case OP_BXOR:	return MOP_BXOR;
+		default: 
+			break;
+	}
+
+	return OP_UNDEF;
+}
+
+
 static void VM_FindMOps( instruction_t *buf, int instructionCount )
 {
 	instruction_t *i;
@@ -2581,41 +2631,13 @@ static void VM_FindMOps( instruction_t *buf, int instructionCount )
 
 	while ( n < instructionCount )
 	{
-#ifdef MACRO_OPTIMIZE
-		if ( i->op == OP_LOCAL || i->op == OP_CONST ) {
-			// OP_LOCAL|OP_CONST + OP_LOCAL|OP_CONST + OP_LOAD4 + OP_CONST + OP_XXX + OP_STORE4
-			if ( (i + 1)->op == i->op && i->value == (i + 1)->value && (i + 2)->op == OP_LOAD4 && (i + 3)->op == OP_CONST && (i + 4)->op != OP_UNDEF && (i + 5)->op == OP_STORE4 
-				// also check this local/global variable not referenced afterwards - otherwise load/op/store/load forwarding is preferable
-				&& !VM_FindSameInst(i, 6, min(instructionCount - n - 1, 8) ) ) {
-				int v = (i + 4)->op;
-				if ( v == OP_ADD ) {
-					i->op = MOP_ADD;
-					i += 6; n += 6;
-					continue;
-				}
-				if ( v == OP_SUB ) {
-					i->op = MOP_SUB;
-					i += 6; n += 6;
-					continue;
-				}
-				if ( v == OP_BAND ) {
-					i->op = MOP_BAND;
-					i += 6; n += 6;
-					continue;
-				}
-				if ( v == OP_BOR ) {
-					i->op = MOP_BOR;
-					i += 6; n += 6;
-					continue;
-				}
-				if ( v == OP_BXOR ) {
-					i->op = MOP_BXOR;
-					i += 6; n += 6;
-					continue;
-				}
-			}
+		int v = VM_IsMopSequence( i );
+		if ( v != OP_UNDEF && !VM_FindSameLoad4( i, 6 ) ) {
+			i->op = v;
+			i += 6;
+			n += 6;
+			continue;
 		}
-#endif
 
 		i++;
 		n++;
@@ -2623,7 +2645,6 @@ static void VM_FindMOps( instruction_t *buf, int instructionCount )
 }
 
 
-#ifdef MACRO_OPTIMIZE
 /*
 =================
 EmitMOPs
@@ -2760,7 +2781,14 @@ qboolean VM_Compile( vm_t *vm, vmHeader_t *header ) {
 
 	VM_ReplaceInstructions( vm, inst );
 
+	// terminator for look-ahead parsers/optimizations
+	inst[ header->instructionCount ].jused = 1;
+	inst[ header->instructionCount ].endp = 1;
+	inst[ header->instructionCount ].op = OP_IGNORE;
+
+#ifdef MACRO_OPTIMIZE
 	VM_FindMOps( inst, vm->instructionCount );
+#endif
 
 #if JUMP_OPTIMIZE
 	for ( i = 0; i < header->instructionCount; i++ ) {
@@ -2902,7 +2930,7 @@ __compile:
 		{
 			// we can safely perform register optimizations only in case if
 			// we are 100% sure that current instruction is not a jump label
-			flush_volatile();
+			flush_opstack();
 		}
 
 		instructionOffsets[ ip++ ] = compiledOfs;
@@ -3037,8 +3065,8 @@ __compile:
 
 			case OP_JUMP:
 				rx[0] = load_rx_opstack( R_EAX | RCONST ); dec_opstack(); // eax = *opstack; opstack -= 4
-				flush_volatile();
 				emit_CheckJump( vm, rx[0], proc_base, proc_len );		// check if eax is within current proc
+				flush_opstack();
 #if idx64
 				emit_jump_index( R_INSPOINTERS, rx[0] );				// jmp qword ptr [instructionPointers + rax*8]
 #else
@@ -3059,6 +3087,7 @@ __compile:
 			case OP_GEU: {
 				rx[0] = load_rx_opstack( R_EAX | RCONST ); dec_opstack(); // eax = *opstack; opstack -= 4
 				rx[1] = load_rx_opstack( R_EDX | RCONST ); dec_opstack(); // edx = *opstack; opstack -= 4
+				flush_nonvolatile();
 				emit_cmp_rx( rx[1], rx[0] ); // cmp edx, eax
 				unmask_rx( rx[0] );
 				unmask_rx( rx[1] );
@@ -3075,6 +3104,7 @@ __compile:
 				if ( HasSSEFP() ) {
 					sx[0] = load_sx_opstack( R_XMM0 | RCONST ); dec_opstack(); // xmm0 = *opstack; opstack -= 4
 					sx[1] = load_sx_opstack( R_XMM1 | RCONST ); dec_opstack(); // xmm1 = *opstack; opstack -= 4
+					flush_nonvolatile();
 					if ( ci->op == OP_EQF || ci->op == OP_NEF ) {
 						emit_ucomiss( sx[1], sx[0] );	// ucomiss xmm1, xmm0
 					} else {
@@ -3088,6 +3118,7 @@ __compile:
 					// legacy x87 path
 					flush_opstack_top(); dec_opstack();
 					flush_opstack_top(); dec_opstack();
+					flush_nonvolatile();
 					if ( HasFCOM() ) {
 						emit_fld( R_OPSTACK, 8 );		// fld dword ptr [opStack+8]
 						emit_fld( R_OPSTACK, 4 );		// fld dword ptr [opStack+4]
@@ -3151,20 +3182,28 @@ __compile:
 						switch ( ci->op ) {
 							case OP_LOAD1:
 								if ( reg->ext != Z_EXT8 ) {
-									emit_zex8( rx[0], rx[0] );  // movzx eax, al 
-									// invalidate any mappings that overlaps with high [8..31] bits 
-									//var.addr += 1; var.size = 3;
-									//wipe_reg_range( rx_regs + rx[0], &var );
-									reduce_map_size( reg, 1 );
+									if ( search_opstack( TYPE_RX, rx[0] ) ) {
+										rx[1] = split_rx( rx[0] ); // alloc rx[1], unmask r[0]
+										emit_zex8( rx[1], rx[0] ); // movzx edx, al
+										set_rx_ext( rx[1], Z_EXT8 );
+										rx[0] = rx[1]; // remap rx[0] to the copy
+									} else {
+										emit_zex8( rx[0], rx[0] );  // movzx eax, al 
+										reduce_map_size( reg, 1 );
+									}
 								}
 								break;
 							case OP_LOAD2:
 								if ( reg->ext != Z_EXT16 ) {
-									emit_zex16( rx[0], rx[0] );  // movzx eax, ax
-									// invalidate any mappings that overlaps with high [16..31] bits 
-									//var.addr += 2; var.size = 2;
-									//wipe_reg_range( rx_regs + rx[0], &var );
-									reduce_map_size( reg, 2 );
+									if ( search_opstack( TYPE_RX, rx[0] ) ) {
+										rx[1] = split_rx( rx[0] );
+										emit_zex16( rx[1], rx[0] );  // movzx edx, ax
+										set_rx_ext( rx[1], Z_EXT16 );
+										rx[0] = rx[1]; // remap rx[0] to the copy
+									} else {
+										emit_zex16( rx[0], rx[0] );  // movzx eax, ax
+										reduce_map_size( reg, 2 );
+									}
 								}
 								break;
 							case OP_LOAD4:

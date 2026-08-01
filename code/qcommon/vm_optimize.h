@@ -111,10 +111,10 @@ static reg_t sx_regs[NUM_SX_REGS];
 static void mov_rx( uint32_t dst, uint32_t src );
 // fp.dst = fp.src
 static void mov_sx( uint32_t dst, uint32_t src );
-// alloc new.gp.reg; new.gp.reg = gp.reg
-static uint32_t clone_rx( uint32_t reg );
-// alloc new.fp.reg; new.fp.reg = fp.reg
-static uint32_t clone_sx( uint32_t reg );
+// alloc new.gp.reg; unmask (gp_reg); return new.gp.reg
+static uint32_t split_rx( uint32_t reg );
+// alloc new.fp.reg; unmask (fp.reg); return new.fp.reg
+static uint32_t split_sx( uint32_t reg );
 // gp.rx = fp.sx
 static void mov_rx_sx( uint32_t rx, uint32_t sx );
 // fp.sx = gp.rx
@@ -1052,8 +1052,8 @@ static uint32_t alloc_sx( uint32_t pref )
 ==============
 flush_volatile
 
-flush any cached register/address/constant to opstack and reset meta (constants mapping)
-this MUST be called before any unconditional jump, return or function call
+flush cached GP/FP registers to opStack memory locations
+this must be called before function calls
 ==============
 */
 static void flush_volatile( void )
@@ -1073,6 +1073,35 @@ static void flush_volatile( void )
 }
 
 
+/*
+==============
+flush_nonvolatile
+
+flush constants/addresses to opStack memory locations
+this must be called before conditional jumps
+==============
+*/
+static void flush_nonvolatile(void)
+{
+	int i;
+
+	for (i = 0; i <= opstack; i++) {
+		opstack_t* it = opstackv + i;
+		if ( it->type == TYPE_CONST || it->type == TYPE_LOCAL ) {
+			flush_item( it );
+		}
+	}
+}
+
+
+/*
+==============
+flush_opstack
+
+materialize opStack values on memory locations
+this must be called for jump targets, before leave/return, uconditional jumps
+==============
+*/
 static void flush_opstack( void )
 {
 	int i;
@@ -1187,7 +1216,9 @@ static uint32_t finish_rx( uint32_t pref, uint32_t reg ) {
 			flush_items( TYPE_RX, reg );
 		} else {
 			// duplicate
-			return clone_rx( reg );
+			const uint32_t rx = split_rx( reg );
+			mov_rx( rx, reg );
+			return rx;
 		}
 	}
 
@@ -1300,7 +1331,9 @@ static uint32_t finish_sx( uint32_t pref, uint32_t reg ) {
 			flush_items( TYPE_SX, reg );
 		} else {
 			// duplicate
-			return clone_sx( reg );
+			const uint32_t sx = split_sx( reg );
+			mov_sx( sx, reg );
+			return sx;
 		}
 	}
 

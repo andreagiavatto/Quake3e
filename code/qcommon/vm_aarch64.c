@@ -731,6 +731,21 @@ static void emit_MOVXi( uint32_t reg, uint64_t imm )
 	emit( MOVK64_48( reg, (imm >> 48)&0xFFFF ) );
 }
 
+// Fixed-size variant: always emits 4 instructions regardless of value.
+// Required when the same call site sees different magnitudes across
+// VM_Compile's two passes -- notably the prologue's rLITBASE load, where
+// pass 0 passes litBase=NULL (1 instr) and pass 1 passes a real 48-bit
+// address (3 instr).  Variable-length there shifts every subsequent
+// offset, leaving pass-0's funcOffset[FUNC_ENTR] stale and pass-1's
+// BL FUNC_ENTR landing in the dispatch trampoline table.
+static void emit_MOVXi64( uint32_t reg, uint64_t imm )
+{
+	emit( MOVZ64( reg, imm & 0xFFFF ) );
+	emit( MOVK64_16( reg, (imm >> 16) & 0xFFFF ) );
+	emit( MOVK64_32( reg, (imm >> 32) & 0xFFFF ) );
+	emit( MOVK64_48( reg, (imm >> 48) & 0xFFFF ) );
+}
+
 // array sizes for cached/meta registers
 #define NUM_RX_REGS 18 // max[R0..R17] + 1
 #define NUM_SX_REGS 32 // max[S0..S31] + 1
@@ -783,23 +798,24 @@ static void mov_rx( uint32_t dst, uint32_t src )
 	emit( MOV32( dst, src ) );
 }
 
+
 static void mov_sx( uint32_t dst, uint32_t src )
 {
 	emit( FMOV( dst, src ) );
 }
 
-static uint32_t clone_rx( uint32_t reg )
+
+static uint32_t split_rx( uint32_t reg )
 {
 	const uint32_t rx = alloc_rx( R2 );
-	mov_rx( rx, reg );
 	unmask_rx( reg );
 	return rx;
 }
 
-static uint32_t clone_sx( uint32_t reg )
+
+static uint32_t split_sx( uint32_t reg )
 {
 	const uint32_t sx = alloc_sx( S2 );
-	mov_sx( sx, reg );
 	unmask_sx( reg );
 	return sx;
 }
@@ -1316,6 +1332,10 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 	uint32_t sx[2];
 	uint32_t x, imm;
 
+	if ( ni->jused ) {
+		return qfalse;
+	}
+
 	switch ( ni->op ) {
 
 	case OP_ADD:
@@ -1379,7 +1399,7 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 		return qtrue;
 
 	case OP_JUMP:
-		flush_volatile();
+		flush_opstack();
 		emit(B(vm->instructionPointers[ ci->value ] - compiledOfs));
 		ip += 1; // OP_JUMP
 		return qtrue;
@@ -1446,6 +1466,7 @@ static qboolean ConstOptimize( vm_t *vm, instruction_t *ci, instruction_t *ni )
 	case OP_LTI: {
 		uint32_t comp = get_comp( ni->op );
 		rx[0] = load_rx_opstack( R0 | RCONST ); dec_opstack(); // r0 = *opstack; opstack -= 4
+		flush_nonvolatile();
 		x = ci->value;
 		if ( x == 0 && ( ni->op == OP_EQ || ni->op == OP_NE ) ) {
 			if ( ni->op == OP_EQ )
@@ -1606,7 +1627,7 @@ __recompile:
 	emit(STP64(R28, R29, SP, 64));
 	emit(STP64(R19, LR,  SP, 80));
 
-	emit_MOVXi(rLITBASE, (intptr_t)litBase );
+	emit_MOVXi64(rLITBASE, (intptr_t)litBase );
 	emit_MOVXi(rVMBASE, (intptr_t)vm );
 	emit_MOVXi(rINSPOINTERS, (intptr_t)vm->instructionPointers );
 	emit_MOVXi(rDATABASE, (intptr_t)vm->dataBase );
@@ -1653,7 +1674,7 @@ __recompile:
 		{
 			// we can safely perform register optimizations only in case if
 			// we are 100% sure that current instruction is not a jump label
-			flush_volatile();
+			flush_opstack();
 		}
 
 		vm->instructionPointers[ ip++ ] = compiledOfs;
@@ -1783,7 +1804,7 @@ __recompile:
 
 			case OP_JUMP:
 				rx[0] = load_rx_opstack( R0 | RCONST ); dec_opstack(); // r0 = *opstack; opstack -= 4
-				flush_volatile();
+				flush_opstack();
 				emit_CheckJump( vm, rx[0], proc_base, proc_len ); // check if r0 is within current proc
 				rx[1] = alloc_rx( R16 );
 				emit(LDR64_8(rx[1], rINSPOINTERS, rx[0]));        // r16 = instructionPointers[ r0 ]
@@ -1806,6 +1827,7 @@ __recompile:
 				uint32_t comp = get_comp( ci->op );
 				rx[0] = load_rx_opstack( R0 | RCONST ); dec_opstack(); // r0 = *opstack; opstack -= 4
 				rx[1] = load_rx_opstack( R1 | RCONST ); dec_opstack(); // r1 = *opstack; opstack -= 4
+				flush_nonvolatile();
 				unmask_rx( rx[0] );
 				unmask_rx( rx[1] );
 				emit(CMP32(rx[1], rx[0]));
@@ -1822,6 +1844,7 @@ __recompile:
 				uint32_t comp = get_comp( ci->op );
 				sx[0] = load_sx_opstack( S0 | RCONST ); dec_opstack(); // s0 = *opstack; opstack -= 4
 				sx[1] = load_sx_opstack( S1 | RCONST ); dec_opstack(); // s1 = *opstack; opstack -= 4
+				flush_nonvolatile();
 				unmask_sx( sx[0] );
 				unmask_sx( sx[1] );
 				emit(FCMP(sx[1], sx[0]));
@@ -1881,20 +1904,28 @@ __recompile:
 						switch ( ci->op ) {
 							case OP_LOAD1:
 								if ( reg->ext != Z_EXT8 ) {
-									emit( UXTB( rx[0], rx[0] ) ); // r0 = (unsigned byte) r0
-									// invalidate any mappings that overlaps with high [8..31] bits
-									//var.addr += 1; var.size = 3;
-									//wipe_reg_range( rx_regs + rx[0], &var );
-									reduce_map_size( reg, 1 );
+									if ( search_opstack( TYPE_RX, rx[0] ) ) {
+										rx[1] = split_rx( rx[0] );		// alloc rx[1], unmask rx[0]
+										emit( UXTB( rx[1], rx[0] ) );	// r1 = (unsigned byte) r0
+										set_rx_ext( rx[1], Z_EXT8 );
+										rx[0] = rx[1];					// remap rx[0] to the copy
+									} else {
+										emit( UXTB( rx[0], rx[0] ) );	// r0 = (unsigned byte) r0
+										reduce_map_size( reg, 1 );
+									}
 								}
 								break;
 							case OP_LOAD2:
 								if ( reg->ext != Z_EXT16 ) {
-									emit( UXTH( rx[0], rx[0] ) ); // r0 = (unsigned short) r0
-									// invalidate any mappings that overlaps with high [16..31] bits 
-									//var.addr += 2; var.size = 2;
-									//wipe_reg_range( rx_regs + rx[0], &var );
-									reduce_map_size( reg, 2 );
+									if ( search_opstack( TYPE_RX, rx[0] ) ) {
+										rx[1] = split_rx( rx[0] );		// alloc rx[1], unmask rx[0]
+										emit( UXTH( rx[1], rx[0] ) );	// r1 = (unsigned short) r0
+										set_rx_ext( rx[1], Z_EXT16 );
+										rx[0] = rx[1];					// remap rx[0] to the copy
+									} else {
+										emit( UXTH( rx[0], rx[0] ) );	// r0 = (unsigned short) r0
+										reduce_map_size( reg, 2 );
+									}
 								}
 								break;
 							case OP_LOAD4:
