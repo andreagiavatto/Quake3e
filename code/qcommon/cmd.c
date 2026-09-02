@@ -102,46 +102,22 @@ void Cbuf_AddText( const char *text ) {
 }
 
 
-static int nestedCmdOffset;
-
-void Cbuf_NestedReset( void ) {
-	nestedCmdOffset = 0;
-}
-
 /*
 ============
-Cbuf_NestedAdd
+Cbuf_Add
 
 // Adds command text at the specified position of the buffer, adds \n when needed
 ============
 */
-void Cbuf_NestedAdd( const char *text ) {
+int Cbuf_Add( const char *text, int pos ) {
 
 	int len = (int)strlen( text );
-	int pos = nestedCmdOffset;
 	qboolean separate = qfalse;
 	int i;
 
-	if ( len <= 0 ) {
-		nestedCmdOffset = cmd_text.cursize;
-		return;
+	if ( len == 0 ) {
+		return cmd_text.cursize;
 	}
-
-#if 0
-	if ( cmd_text.cursize > 0 ) {
-		const int c = cmd_text.data[cmd_text.cursize - 1];
-		// insert separator for already existing command(s)
-		if ( c != '\n' && c != ';' && text[0] != '\n' && text[0] != ';' ) {
-			if ( cmd_text.cursize < cmd_text.maxsize ) {
-				cmd_text.data[cmd_text.cursize++] = ';';
-			} else {
-				Com_Printf( S_COLOR_YELLOW "%s(%i) overflowed\n", __func__, pos );
-				nestedCmdOffset = cmd_text.cursize;
-				return;
-			}
-		}
-	}
-#endif
 
 	if ( pos > cmd_text.cursize || pos < 0 ) {
 		// insert at the text end
@@ -157,8 +133,7 @@ void Cbuf_NestedAdd( const char *text ) {
 
 	if ( len + cmd_text.cursize > cmd_text.maxsize ) {
 		Com_Printf( S_COLOR_YELLOW "%s(%i) overflowed\n", __func__, pos );
-		nestedCmdOffset = cmd_text.cursize;
-		return;
+		return cmd_text.cursize;
 	}
 
 	// move the existing command text
@@ -177,7 +152,7 @@ void Cbuf_NestedAdd( const char *text ) {
 
 	cmd_text.cursize += len;
 
-	nestedCmdOffset = cmd_text.cursize;
+	return pos + len;
 }
 
 
@@ -253,24 +228,26 @@ Cbuf_Execute
 */
 void Cbuf_Execute( void )
 {
-	char line[MAX_CMD_LINE], *text;
-	int i, n, quotes;
-	qboolean in_star_comment;
-	qboolean in_slash_comment;
-
-	if ( cmd_wait > 0 ) {
-		// delay command buffer execution
-		return;
-	}
+	int i;
+	char *text;
+	char line[MAX_CMD_LINE];
+	int quotes;
 
 	// This will keep // style comments all on one line by not breaking on
 	// a semicolon.  It will keep /* ... */ style comments all on one line by not
 	// breaking it for semicolon or newline.
-	in_star_comment = qfalse;
-	in_slash_comment = qfalse;
+	qboolean in_star_comment = qfalse;
+	qboolean in_slash_comment = qfalse;
 
 	while ( cmd_text.cursize > 0 )
 	{
+		if ( cmd_wait > 0 ) {
+			// skip out while text still remains in buffer, leaving it
+			// for next frame
+			cmd_wait--;
+			break;
+		}
+
 		// find a \n or ; line break or comment: // or /* */
 		text = (char *)cmd_text.data;
 
@@ -304,62 +281,32 @@ void Cbuf_Execute( void )
 			}
 		}
 
-		// copy up to (MAX_CMD_LINE - 1) chars but keep buffer position intact to prevent parsing truncated leftover
-		if ( i > (MAX_CMD_LINE - 1) )
-			n = MAX_CMD_LINE - 1;
-		else
-			n = i;
+		if ( i >= (MAX_CMD_LINE - 1) )
+			i = MAX_CMD_LINE - 1;
 
-		Com_Memcpy( line, text, n );
-		line[n] = '\0';
+		Com_Memcpy( line, text, i );
+		line[i] = '\0';
 
 		// delete the text from the command buffer and move remaining commands down
 		// this is necessary because commands (exec) can insert data at the
 		// beginning of the text buffer
 
-		if ( i == cmd_text.cursize ) {
-			//cmd_text.cursize = 0;
-		} else {
-			++i;
-			// skip all repeating newlines/semicolons/whitespaces
-			while ( i < cmd_text.cursize && (text[i] == '\n' || text[i] == '\r' || text[i] == ';' || ( text[i] != '\0' && text[i] <= ' ' ) ) ) {
-				++i;
+		if ( i == cmd_text.cursize )
+			cmd_text.cursize = 0;
+		else
+		{
+			i++;
+			cmd_text.cursize -= i;
+			// skip all repeating newlines/semicolons
+			while ( ( text[i] == '\n' || text[i] == '\r' || text[i] == ';' ) && cmd_text.cursize > 0 ) {
+				cmd_text.cursize--;
+				i++;
 			}
-		}
-
-		cmd_text.cursize -= i;
-
-		if ( cmd_text.cursize ) {
-			memmove( text, text + i, cmd_text.cursize );
-		}
-
-		if ( nestedCmdOffset > 0 ) {
-			nestedCmdOffset -= i;
-			if ( nestedCmdOffset < 0 ) {
-				nestedCmdOffset = 0;
-			}
+			memmove( text, text+i, cmd_text.cursize );
 		}
 
 		// execute the command line
 		Cmd_ExecuteString( line );
-
-		// break on wait command
-		if ( cmd_wait > 0 ) {
-			break;
-		}
-	}
-}
-
-
-/*
-============
-Cbuf_Wait
-============
-*/
-void Cbuf_Wait( void )
-{
-	if ( cmd_wait > 0 ) {
-		--cmd_wait;
 	}
 }
 

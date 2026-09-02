@@ -3484,9 +3484,8 @@ static void Sys_GetProcessorId( char *vendor )
 
 #else // __linux__
 
-#include <sys/auxv.h>
-
 #if arm32
+#include <sys/auxv.h>
 #include <asm/hwcap.h>
 #endif
 
@@ -4467,8 +4466,6 @@ void Com_Frame( qboolean noDelay ) {
 #endif
 
 	NET_FlushPacketQueue( 0 );
-
-	Cbuf_Wait();
 
 	//
 	// report timing information
